@@ -1,807 +1,602 @@
-/**
- * ============================================================
- * Night Lua Toolkit — script.js
- * Browser-only Lua analysis and transformation tools
- * ============================================================
- */
+const input = document.getElementById("input");
+const output = document.getElementById("output");
+const messages = document.getElementById("messages");
 
-'use strict';
-
-// ============================================================
-// DOM REFERENCES
-// ============================================================
-const inputEl    = document.getElementById('input');
-const outputEl   = document.getElementById('output');
-const errPanel   = document.getElementById('error-panel');
-const errBody    = document.getElementById('error-body');
-const errCount   = document.getElementById('error-count');
-const outputHint = document.getElementById('output-hint');
-
-const statLines  = document.getElementById('stat-lines');
-const statChars  = document.getElementById('stat-chars');
-const statTokens = document.getElementById('stat-tokens');
-
-// Obfuscation option checkboxes / selects
-const optRename  = document.getElementById('opt-rename');
-const optStrings = document.getElementById('opt-strings');
-const optJunk    = document.getElementById('opt-junk');
-const optBytes   = document.getElementById('opt-bytes');
-const optLevel   = document.getElementById('opt-junk-level');
-
-// ============================================================
-// LIVE STATS — update on every keystroke
-// ============================================================
-inputEl.addEventListener('input', updateStats);
-
-function updateStats() {
-  const v      = inputEl.value;
-  const lines  = v ? v.split('\n').length : 0;
-  const chars  = v.length;
-  const tokens = Math.ceil(chars / 3.6); // rough GPT-style estimate
-  statLines.textContent  = lines;
-  statChars.textContent  = chars;
-  statTokens.textContent = '~' + tokens;
+function msg(text, good = true) {
+	messages.textContent = text;
+	messages.style.color = good ? "#9cffbf" : "#ff8c9b";
 }
 
-// ============================================================
-// STATUS HELPERS
-// ============================================================
-
-/** Escape HTML special characters */
-function esc(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+function getSetting(id) {
+	return document.getElementById(id).checked;
 }
 
-/**
- * Show messages in the status panel.
- * @param {Array<{type:'error'|'warning'|'ok'|'info', text:string}>} msgs
- */
-function showStatus(msgs) {
-  // Determine overall state
-  const hasErr  = msgs.some(m => m.type === 'error');
-  const hasWarn = msgs.some(m => m.type === 'warning');
-  const isOk    = !hasErr && !hasWarn && msgs.some(m => m.type === 'ok');
-
-  errPanel.className = 'error-panel' +
-    (hasErr  ? ' state-error'   :
-     hasWarn ? ' state-warning' :
-     isOk    ? ' state-ok'      : '');
-
-  const errorMsgs = msgs.filter(m => m.type === 'error');
-  errCount.textContent = errorMsgs.length > 0
-    ? `${errorMsgs.length} error${errorMsgs.length > 1 ? 's' : ''}`
-    : '';
-
-  const icons = { error: '✖', warning: '⚠', ok: '✔', info: 'ℹ' };
-
-  errBody.innerHTML = msgs.map(m =>
-    `<div class="msg ${m.type}">
-       <span class="msg-icon">${icons[m.type] || 'ℹ'}</span>
-       <span>${esc(m.text)}</span>
-     </div>`
-  ).join('');
+function randomInt(min, max) {
+	return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-/** Write to output textarea and update the hint */
-function setOutput(code, hintText) {
-  outputEl.value = code;
-  if (hintText) outputHint.textContent = hintText;
+function randomName(length = randomInt(5, 11)) {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	let result = chars[randomInt(0, chars.length - 1)];
+
+	for (let i = 1; i < length; i++) {
+		result += chars[randomInt(0, chars.length - 1)];
+	}
+
+	return result;
 }
 
-// ============================================================
-// LUA SCANNER
-// Strips strings and comments from source so structural checks
-// run on "clean" code.  Returns:
-//   clean  — source with strings replaced by "" and comments removed
-//   errors — array of {line, text} for unclosed literals
-// ============================================================
-function scanLua(code) {
-  let clean  = '';
-  const errors = [];
-  let i      = 0;
-  let lineNo = 1;
-  const n    = code.length;
+function randomTinyName() {
+	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	let result = chars[randomInt(0, chars.length - 1)];
 
-  while (i < n) {
-    const c  = code[i];
-    const c1 = code[i + 1];
-    const c2 = code[i + 2];
-    const c3 = code[i + 3];
+	if (Math.random() > 0.45) {
+		result += chars[randomInt(0, chars.length - 1)];
+	}
 
-    // ---- Multiline comment  --[[ ... ]] ----
-    if (c === '-' && c1 === '-' && c2 === '[' && c3 === '[') {
-      const sl = lineNo;
-      i += 4;
-      let closed = false;
-      while (i < n) {
-        if (code[i] === ']' && code[i + 1] === ']') { i += 2; closed = true; break; }
-        if (code[i] === '\n') { lineNo++; clean += '\n'; }
-        i++;
-      }
-      if (!closed) errors.push({ line: sl, text: `Line ${sl}: Unclosed multiline comment  --[[` });
-      continue;
-    }
-
-    // ---- Single-line comment  -- ----
-    if (c === '-' && c1 === '-') {
-      while (i < n && code[i] !== '\n') i++;
-      continue;
-    }
-
-    // ---- Multiline string  [[ ... ]] ----
-    if (c === '[' && c1 === '[') {
-      const sl = lineNo;
-      i += 2;
-      let closed = false;
-      clean += '""'; // placeholder
-      while (i < n) {
-        if (code[i] === ']' && code[i + 1] === ']') { i += 2; closed = true; break; }
-        if (code[i] === '\n') { lineNo++; clean += '\n'; }
-        i++;
-      }
-      if (!closed) errors.push({ line: sl, text: `Line ${sl}: Unclosed multiline string  [[` });
-      continue;
-    }
-
-    // ---- Quoted string  "..." or '...' ----
-    if (c === '"' || c === "'") {
-      const q  = c;
-      const sl = lineNo;
-      i++;
-      clean += '""'; // placeholder
-      let closed = false;
-      while (i < n) {
-        if (code[i] === '\\') { i += 2; continue; }   // skip escape sequence
-        if (code[i] === '\n') break;                   // line break = unclosed
-        if (code[i] === q)    { i++; closed = true; break; }
-        i++;
-      }
-      if (!closed) errors.push({ line: sl, text: `Line ${sl}: Unclosed string literal (${q})` });
-      continue;
-    }
-
-    // ---- Newlines ----
-    if (c === '\n') { lineNo++; clean += '\n'; i++; continue; }
-
-    // ---- Regular character ----
-    clean += c;
-    i++;
-  }
-
-  return { clean, errors };
+	return result;
 }
 
-// ============================================================
-// CHECK SYNTAX
-// ============================================================
-function checkSyntax() {
-  const code = inputEl.value;
-  if (!code.trim()) {
-    showStatus([{ type: 'info', text: 'No code to check.' }]);
-    return;
-  }
+function shuffleArray(array) {
+	const copy = array.slice();
 
-  const msgs = [];
-  const { clean, errors } = scanLua(code);
+	for (let i = copy.length - 1; i > 0; i--) {
+		const j = randomInt(0, i);
+		[copy[i], copy[j]] = [copy[j], copy[i]];
+	}
 
-  // --- 1. String / comment scan errors ---
-  errors.forEach(e => msgs.push({ type: 'error', text: e.text }));
-
-  // --- 2. Bracket balance check on clean code ---
-  const bracketStack = [];
-  const matching     = { ')': '(', '}': '{', ']': '[' };
-  const isOpen       = new Set(['(', '{', '[']);
-  const isClose      = new Set([')', '}', ']']);
-  const cleanLines   = clean.split('\n');
-
-  cleanLines.forEach((line, li) => {
-    for (let ci = 0; ci < line.length; ci++) {
-      const ch = line[ci];
-      if (isOpen.has(ch)) {
-        bracketStack.push({ ch, line: li + 1 });
-      } else if (isClose.has(ch)) {
-        if (bracketStack.length === 0) {
-          msgs.push({ type: 'error', text: `Line ${li + 1}: Unexpected '${ch}' — no matching '${matching[ch]}'` });
-        } else {
-          const top = bracketStack[bracketStack.length - 1];
-          if (top.ch !== matching[ch]) {
-            msgs.push({ type: 'error', text: `Line ${li + 1}: Mismatched bracket '${ch}' (opened '${top.ch}' on line ${top.line})` });
-          }
-          bracketStack.pop();
-        }
-      }
-    }
-  });
-
-  bracketStack.forEach(b => {
-    msgs.push({ type: 'error', text: `Line ${b.line}: Unclosed '${b.ch}' — never closed` });
-  });
-
-  // --- 3. Block keyword balance (function/if/do/for/while/repeat) ---
-  // Stack holds { type:'block'|'repeat', kw:string, line:number }
-  const blockStack = [];
-
-  cleanLines.forEach((line, li) => {
-    // Tokenise keywords in order of appearance
-    const re     = /\b(function|then|do|repeat|end|until|else|elseif)\b/g;
-    let   match;
-    while ((match = re.exec(line)) !== null) {
-      const kw = match[1];
-      switch (kw) {
-        case 'function':
-        case 'then':
-        case 'do':
-          blockStack.push({ type: 'block', kw, line: li + 1 });
-          break;
-
-        case 'repeat':
-          blockStack.push({ type: 'repeat', kw: 'repeat', line: li + 1 });
-          break;
-
-        case 'else':
-          // Closes the previous 'then' block and opens a new one
-          if (blockStack.length > 0 && blockStack[blockStack.length - 1].type === 'block') {
-            blockStack.pop();
-            blockStack.push({ type: 'block', kw: 'else', line: li + 1 });
-          }
-          break;
-
-        case 'elseif':
-          // Closes the previous 'then'; 'then' that follows will push a new one
-          if (blockStack.length > 0 && blockStack[blockStack.length - 1].type === 'block') {
-            blockStack.pop();
-          }
-          break;
-
-        case 'end':
-          if (blockStack.length === 0) {
-            msgs.push({ type: 'error', text: `Line ${li + 1}: Unexpected 'end' — no open block to close` });
-          } else {
-            const top = blockStack[blockStack.length - 1];
-            if (top.type === 'repeat') {
-              msgs.push({ type: 'error', text: `Line ${li + 1}: 'end' used on a 'repeat' block — use 'until <condition>' instead` });
-            }
-            blockStack.pop();
-          }
-          break;
-
-        case 'until':
-          if (blockStack.length === 0) {
-            msgs.push({ type: 'error', text: `Line ${li + 1}: Unexpected 'until' — no matching 'repeat'` });
-          } else {
-            const top = blockStack[blockStack.length - 1];
-            if (top.type !== 'repeat') {
-              msgs.push({ type: 'error', text: `Line ${li + 1}: 'until' found but open block was '${top.kw}' (use 'end' instead)` });
-            }
-            blockStack.pop();
-          }
-          break;
-      }
-    }
-  });
-
-  // Anything left on the block stack is unclosed
-  blockStack.forEach(b => {
-    const hint = b.type === 'repeat' ? " (needs 'until')" : " (needs 'end')";
-    msgs.push({ type: 'error', text: `Line ${b.line}: Unclosed '${b.kw}' block${hint}` });
-  });
-
-  // --- 4. Risky pattern warnings (on original source) ---
-  const riskyPatterns = [
-    { re: /\bloadstring\b/, msg: "loadstring — executes arbitrary code at runtime" },
-    { re: /\bHttpGet\b/,    msg: "HttpGet — outbound HTTP request" },
-    { re: /\bgetgenv\b/,    msg: "getgenv — accesses the global environment table" },
-    { re: /\bgetfenv\b/,    msg: "getfenv — accesses a function's environment" },
-    { re: /\bsetfenv\b/,    msg: "setfenv — modifies a function's environment" },
-    { re: /\brawset\b/,     msg: "rawset — bypasses __newindex metamethod" },
-    { re: /\brawget\b/,     msg: "rawget — bypasses __index metamethod" },
-    { re: /\bdebug\./,      msg: "debug library — low-level introspection" },
-    { re: /\bos\.execute\b/,msg: "os.execute — runs shell commands" },
-    { re: /\bio\.open\b/,   msg: "io.open — filesystem access" },
-  ];
-
-  code.split('\n').forEach((line, li) => {
-    riskyPatterns.forEach(p => {
-      if (p.re.test(line)) {
-        msgs.push({ type: 'warning', text: `Line ${li + 1}: Risky pattern — ${p.msg}` });
-      }
-    });
-  });
-
-  // --- Result ---
-  if (msgs.length === 0) {
-    showStatus([{ type: 'ok', text: 'No issues found. Basic syntax check passed ✓' }]);
-  } else {
-    const errCount = msgs.filter(m => m.type === 'error').length;
-    const wrnCount = msgs.filter(m => m.type === 'warning').length;
-    showStatus(msgs);
-    // Print summary as first entry
-    const summary = [];
-    if (errCount > 0) summary.push(`${errCount} error${errCount > 1 ? 's' : ''}`);
-    if (wrnCount > 0) summary.push(`${wrnCount} warning${wrnCount > 1 ? 's' : ''}`);
-    // Prepend summary
-    const summaryEl = document.createElement('div');
-    summaryEl.className = 'msg ' + (errCount > 0 ? 'error' : 'warning');
-    summaryEl.innerHTML = `<span class="msg-icon">${errCount > 0 ? '✖' : '⚠'}</span><span><strong>Found ${summary.join(' and ')}</strong></span>`;
-    errBody.insertBefore(summaryEl, errBody.firstChild);
-  }
+	return copy;
 }
 
-// ============================================================
-// BEAUTIFY
-// ============================================================
-function beautifyLua() {
-  const code = inputEl.value;
-  if (!code.trim()) {
-    showStatus([{ type: 'info', text: 'Nothing to beautify.' }]);
-    return;
-  }
+function removeComments(code) {
+	let result = "";
+	let i = 0;
+	let inString = false;
+	let quote = "";
 
-  const TAB   = '    '; // 4-space indent
-  const lines = code.split('\n');
-  const out   = [];
-  let depth   = 0;
+	while (i < code.length) {
+		const char = code[i];
+		const next = code[i + 1];
 
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
+		if (inString) {
+			result += char;
 
-    if (!line) { out.push(''); continue; }
+			if (char === "\\" && i + 1 < code.length) {
+				result += code[i + 1];
+				i += 2;
+				continue;
+			}
 
-    // ---- Decrease depth BEFORE printing these keywords ----
-    if (/^(end|until|else|elseif)\b/.test(line)) {
-      depth = Math.max(0, depth - 1);
-    }
+			if (char === quote) {
+				inString = false;
+				quote = "";
+			}
 
-    out.push(TAB.repeat(depth) + line);
+			i++;
+			continue;
+		}
 
-    // ---- Increase depth AFTER printing openers ----
-    const opensBlock = (
-      /\bthen\s*$/.test(line)    ||   // if/elseif ... then
-      /\bdo\s*$/.test(line)      ||   // for/while/do ... do
-      /^else$/.test(line)        ||   // standalone else
-      /^repeat$/.test(line)      ||   // repeat
-      (
-        /\bfunction\b/.test(line) &&  // function definition
-        !/\bend\b/.test(line)         // not a one-line closure
-      )
-    );
+		if (char === '"' || char === "'") {
+			inString = true;
+			quote = char;
+			result += char;
+			i++;
+			continue;
+		}
 
-    if (opensBlock) depth++;
-  }
+		if (char === "-" && next === "-") {
+			while (i < code.length && code[i] !== "\n") {
+				i++;
+			}
+			continue;
+		}
 
-  const result = out.join('\n');
-  setOutput(result, 'Beautified');
-  showStatus([{ type: 'ok', text: 'Code beautified successfully.' }]);
+		result += char;
+		i++;
+	}
+
+	return result;
 }
 
-// ============================================================
-// MINIFY
-// Properly handles strings and comments using the scanner.
-// ============================================================
-function minifyLua() {
-  const code = inputEl.value;
-  if (!code.trim()) {
-    showStatus([{ type: 'info', text: 'Nothing to minify.' }]);
-    return;
-  }
-
-  // Walk source, emit compact output
-  let result = '';
-  let i      = 0;
-  const n    = code.length;
-
-  while (i < n) {
-    const c  = code[i];
-    const c1 = code[i + 1];
-    const c2 = code[i + 2];
-    const c3 = code[i + 3];
-
-    // Drop multiline comments
-    if (c === '-' && c1 === '-' && c2 === '[' && c3 === '[') {
-      i += 4;
-      while (i < n && !(code[i] === ']' && code[i + 1] === ']')) i++;
-      i += 2;
-      continue;
-    }
-
-    // Drop single-line comments
-    if (c === '-' && c1 === '-') {
-      while (i < n && code[i] !== '\n') i++;
-      continue;
-    }
-
-    // Keep multiline strings verbatim
-    if (c === '[' && c1 === '[') {
-      result += '[[';
-      i += 2;
-      while (i < n) {
-        if (code[i] === ']' && code[i + 1] === ']') { result += ']]'; i += 2; break; }
-        result += code[i++];
-      }
-      continue;
-    }
-
-    // Keep quoted strings verbatim
-    if (c === '"' || c === "'") {
-      const q = c;
-      result += q;
-      i++;
-      while (i < n && code[i] !== q) {
-        if (code[i] === '\\') { result += code[i] + code[i + 1]; i += 2; continue; }
-        if (code[i] === '\n') break;
-        result += code[i++];
-      }
-      if (i < n) result += code[i++];
-      continue;
-    }
-
-    // Collapse whitespace / newlines into single space
-    if (c === '\n' || c === '\r' || c === '\t' || c === ' ') {
-      if (result.length > 0 && result[result.length - 1] !== ' ') result += ' ';
-      i++;
-      continue;
-    }
-
-    result += c;
-    i++;
-  }
-
-  // Trim excess spaces around punctuation
-  result = result
-    .replace(/ *([\(\)\[\]\{\},;:]) */g, '$1')
-    .replace(/ *([\+\*\/%\^#]) */g, '$1')
-    .replace(/ *\.\. */g, '..')
-    .replace(/ *~= */g, '~=')
-    .replace(/ *== */g, '==')
-    .replace(/ *<= */g, '<=')
-    .replace(/ *>= */g, '>=')
-    .replace(/ *= */g, '=');
-
-  // Ensure spaces around reserved keywords so they stay valid
-  const keywords = [
-    'then','do','end','local','function','return','if','else','elseif',
-    'for','while','repeat','until','in','and','or','not','nil','true','false'
-  ];
-  keywords.forEach(kw => {
-    result = result.replace(new RegExp(`\\b${kw}\\b`, 'g'), ` ${kw} `);
-  });
-
-  result = result.replace(/ {2,}/g, ' ').trim();
-
-  const saved = Math.round((1 - result.length / code.length) * 100);
-  setOutput(result, 'Minified');
-  showStatus([{ type: 'ok', text: `Minified: ${code.length} → ${result.length} chars (${saved}% smaller)` }]);
+function minify(code) {
+	return removeComments(code)
+		.split(/\r?\n/)
+		.map(line => line.trim())
+		.filter(Boolean)
+		.join(" ")
+		.replace(/\s+/g, " ")
+		.replace(/\s*([=+\-*/%<>~#.,;:{}()[\]])\s*/g, "$1")
+		.trim();
 }
 
-// ============================================================
-// OBFUSCATION HELPERS
-// ============================================================
+function minifyOnly() {
+	if (!input.value.trim()) {
+		msg("No Lua code to minify.", false);
+		return;
+	}
 
-/** Generate a random identifier of given length (starts with a letter) */
-function randId(len) {
-  const alpha = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
-  const alnum = alpha + '0123456789';
-  let name = alpha[Math.floor(Math.random() * alpha.length)];
-  for (let i = 1; i < len; i++) {
-    name += alnum[Math.floor(Math.random() * alnum.length)];
-  }
-  return name;
+	output.value = minify(input.value);
+	msg("Minified successfully.");
 }
 
-/** Get a unique random identifier not in the used set */
-function uniqueId(usedSet) {
-  const len = 3 + Math.floor(Math.random() * 4); // 3–6 chars
-  let name;
-  do { name = randId(len); } while (usedSet.has(name));
-  usedSet.add(name);
-  return name;
+function renameLocalVariables(code) {
+	const reserved = new Set([
+		"and", "break", "do", "else", "elseif", "end", "false", "for", "function",
+		"if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true",
+		"until", "while", "print", "string", "math", "table", "game", "workspace",
+		"script", "pairs", "ipairs", "next", "load", "loadstring", "require", "pcall",
+		"xpcall", "error", "type", "typeof", "task", "wait", "Vector3", "CFrame"
+	]);
+
+	const map = {};
+
+	const patterns = [
+		/\blocal\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+		/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
+		/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s*,/g
+	];
+
+	for (const pattern of patterns) {
+		let match;
+
+		while ((match = pattern.exec(code)) !== null) {
+			const oldName = match[1];
+
+			if (!reserved.has(oldName) && !map[oldName]) {
+				let newName = randomTinyName();
+
+				while (reserved.has(newName) || Object.values(map).includes(newName)) {
+					newName = randomTinyName();
+				}
+
+				map[oldName] = newName;
+			}
+		}
+	}
+
+	for (const [oldName, newName] of Object.entries(map)) {
+		const re = new RegExp(`\\b${oldName}\\b`, "g");
+		code = code.replace(re, newName);
+	}
+
+	return code;
 }
 
-/** Encode a plain string as a Lua string.char(...) call */
-function encodeStringToChar(str) {
-  const bytes = Array.from(str).map(c => c.charCodeAt(0));
-  return `string.char(${bytes.join(',')})`;
+function encodeStrings(code) {
+	return code.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, function(match) {
+		const raw = match.slice(1, -1);
+
+		if (!raw.length) {
+			return match;
+		}
+
+		const bytes = [];
+
+		for (let i = 0; i < raw.length; i++) {
+			const shift = randomInt(3, 30);
+			bytes.push({
+				value: raw.charCodeAt(i) + shift,
+				shift
+			});
+		}
+
+		const piece = bytes
+			.map(item => `string.char(${item.value}-${item.shift})`)
+			.join("..");
+
+		return `(${piece})`;
+	});
 }
 
-/** Generate Lua junk code lines that do nothing useful */
-function makeJunkLines(level) {
-  const counts = { low: 4, medium: 9, high: 18 };
-  const n      = counts[level] || 4;
-  const used   = new Set(['_G', '_VERSION', 'print', 'pairs', 'ipairs', 'type', 'tostring', 'tonumber']);
-  const lines  = [];
+function stringToBytes(str) {
+	const bytes = [];
 
-  for (let i = 0; i < n; i++) {
-    const v = uniqueId(used);
-    const r = Math.floor(Math.random() * 5);
-    if (r === 0) {
-      // Fake numeric local
-      lines.push(`local ${v}=${Math.floor(Math.random() * 999999)}`);
-    } else if (r === 1) {
-      // Fake string local via string.char
-      const dummy = randId(4 + Math.floor(Math.random() * 4));
-      lines.push(`local ${v}=string.char(${dummy.split('').map(c => c.charCodeAt(0)).join(',')})`);
-    } else if (r === 2) {
-      // Fake function that returns a constant
-      lines.push(`local function ${v}() return ${Math.floor(Math.random() * 9999)} end`);
-    } else if (r === 3) {
-      // Dead if-false block
-      const val  = uniqueId(used);
-      const val2 = uniqueId(used);
-      lines.push(`local ${val}=false;if ${val} then local ${val2}=1 end`);
-    } else {
-      // Fake table
-      const val  = uniqueId(used);
-      const val2 = uniqueId(used);
-      lines.push(`local ${val}={};local ${val2}=${val}`);
-    }
-  }
-  return lines;
+	for (let i = 0; i < str.length; i++) {
+		bytes.push(str.charCodeAt(i));
+	}
+
+	return bytes;
 }
 
-/**
- * Rename local variables and function parameters.
- * NOTE: Browser-only regex approach; works for most common code.
- */
-function renameLocalVars(code) {
-  const nameMap = new Map();
-  const used    = new Set();
+function encodeLiteralToLuaExpression(text) {
+	const key = randomInt(15, 80);
+	const data = stringToBytes(text).map(byte => byte + key);
+	const dataVar = randomName();
+	const outVar = randomName();
+	const iVar = randomName();
+	const vVar = randomName();
 
-  // Collect local variable names
-  const localRe = /\blocal\s+([a-zA-Z_][a-zA-Z0-9_]*)/g;
-  let m;
-  while ((m = localRe.exec(code)) !== null) {
-    const orig = m[1];
-    if (!nameMap.has(orig)) nameMap.set(orig, uniqueId(used));
-  }
-
-  // Collect function parameter names
-  const funcRe = /\bfunction\s*(?:[a-zA-Z_.:\[\]"']+\s*)?\(([^)]*)\)/g;
-  while ((m = funcRe.exec(code)) !== null) {
-    m[1].split(',').map(p => p.trim()).filter(Boolean).forEach(param => {
-      const name = param.replace(/\s*=.*/, '').trim();
-      if (name && /^[a-zA-Z_]/.test(name) && !nameMap.has(name)) {
-        nameMap.set(name, uniqueId(used));
-      }
-    });
-  }
-
-  // Replace all occurrences (whole-word only)
-  let result = code;
-  nameMap.forEach((newName, origName) => {
-    result = result.replace(
-      new RegExp(`(?<![a-zA-Z0-9_.])${origName}(?![a-zA-Z0-9_])`, 'g'),
-      newName
-    );
-  });
-
-  return result;
+	return `(function()
+local ${dataVar}={${data.join(",")}}
+local ${outVar}={}
+for ${iVar},${vVar} in ipairs(${dataVar}) do
+	${outVar}[${iVar}]=_G[string.char(115,116,114,105,110,103)][string.char(99,104,97,114)](${vVar}-${key})
+end
+return _G[string.char(116,97,98,108,101)][string.char(99,111,110,99,97,116)](${outVar})
+end)()`;
 }
 
-/**
- * Encode string literals in code to string.char(…) calls.
- * Carefully skips multiline strings [[ ]] so they're not double-encoded.
- */
-function encodeStringsInCode(code) {
-  let result = '';
-  let i      = 0;
-  const n    = code.length;
+function makeFakeErrorCode(level) {
+	let amount = 2;
 
-  while (i < n) {
-    const c  = code[i];
-    const c1 = code[i + 1];
+	if (level === "medium") amount = 5;
+	if (level === "high") amount = 9;
 
-    // Keep multiline strings as-is
-    if (c === '[' && c1 === '[') {
-      result += '[[';
-      i += 2;
-      while (i < n) {
-        if (code[i] === ']' && code[i + 1] === ']') { result += ']]'; i += 2; break; }
-        result += code[i++];
-      }
-      continue;
-    }
+	const lines = [];
 
-    // Encode quoted strings
-    if (c === '"' || c === "'") {
-      const q = c;
-      let inner = '';
-      i++;
-      while (i < n && code[i] !== q) {
-        if (code[i] === '\\') {
-          // Handle escape sequences
-          const esc = code[i + 1];
-          if      (esc === 'n')  { inner += '\n'; i += 2; }
-          else if (esc === 't')  { inner += '\t'; i += 2; }
-          else if (esc === '\\') { inner += '\\'; i += 2; }
-          else if (esc === '"')  { inner += '"';  i += 2; }
-          else if (esc === "'")  { inner += "'";  i += 2; }
-          else                   { inner += code[i] + code[i + 1]; i += 2; }
-          continue;
-        }
-        if (code[i] === '\n') break;
-        inner += code[i++];
-      }
-      if (i < n && code[i] === q) i++; // skip closing quote
-      result += encodeStringToChar(inner);
-      continue;
-    }
+	const fakeErrors = [
+		"attempt to index nil with 'Parent'",
+		"invalid argument #1 to 'char'",
+		"stack overflow",
+		"bad argument #2 to 'random'",
+		"missing permission",
+		"bytecode mismatch",
+		"tamper detected",
+		"checksum failed",
+		"environment blocked"
+	];
 
-    result += c;
-    i++;
-  }
+	for (let i = 0; i < amount; i++) {
+		const flag = randomName();
+		const fake = fakeErrors[randomInt(0, fakeErrors.length - 1)];
+		const fakeExpr = encodeLiteralToLuaExpression(fake);
 
-  return result;
+		const style = randomInt(1, 4);
+
+		if (style === 1) {
+			lines.push(`local ${flag}=false;if ${flag} then error(${fakeExpr}) end`);
+		} else if (style === 2) {
+			lines.push(`pcall(function() if false then error(${fakeExpr}) end end)`);
+		} else if (style === 3) {
+			lines.push(`local ${flag}=0;if ${flag}>999999 then error(${fakeExpr}) end`);
+		} else {
+			lines.push(`do local ${flag}=nil;if ${flag}~=nil then error(${fakeExpr}) end end`);
+		}
+	}
+
+	return lines.join(";");
 }
 
-/**
- * Encode the full Lua source as a byte array and wrap in load()…()
- * Splits into chunks to avoid extremely long lines.
- */
-function byteEncodeWhole(code) {
-  const bytes     = Array.from(code).map(c => c.charCodeAt(0));
-  const chunkSize = 55;
-  const chunkVars = [];
-  const used      = new Set();
-  let   output    = '';
+function makeJunkCode(level) {
+	let amount = 5;
 
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk   = bytes.slice(i, i + chunkSize);
-    const varName = uniqueId(used);
-    chunkVars.push(varName);
-    output += `local ${varName}=string.char(${chunk.join(',')})\n`;
-  }
+	if (level === "medium") amount = 12;
+	if (level === "high") amount = 24;
 
-  const concatVar = uniqueId(used);
-  output += `local ${concatVar}=${chunkVars.join('..')}\n`;
-  output += `load(${concatVar})()`;
+	const junk = [];
 
-  return output;
+	for (let i = 0; i < amount; i++) {
+		const a = randomName();
+		const b = randomName();
+		const c = randomName();
+		const d = randomName();
+		const n1 = randomInt(1000, 999999);
+		const n2 = randomInt(1000, 999999);
+
+		const style = randomInt(1, 7);
+
+		if (style === 1) {
+			junk.push(`local ${a}=${n1}`);
+		} else if (style === 2) {
+			junk.push(`local ${a}=false;if ${a} then local ${b}=${n2} end`);
+		} else if (style === 3) {
+			junk.push(`local function ${a}(${b}) return (${b} or ${n1})+${n2} end`);
+		} else if (style === 4) {
+			junk.push(`local ${a}={};local ${b}=${a};${b}[${randomInt(1, 9)}]=${n1}`);
+		} else if (style === 5) {
+			junk.push(`do local ${a}=string.char(${randomInt(65, 90)},${randomInt(65, 90)},${randomInt(65, 90)});local ${b}=#${a} end`);
+		} else if (style === 6) {
+			junk.push(`local ${a}=function() return ${n1} end;local ${b}=${a}()`);
+		} else {
+			junk.push(`local ${a},${b},${c}=${n1},${n2},false;if ${c} then ${d}=${a}+${b} end`);
+		}
+	}
+
+	junk.push(makeFakeErrorCode(level));
+
+	return shuffleArray(junk).join(";");
 }
 
-// ============================================================
-// OBFUSCATE
-// ============================================================
+function encodeBytesAdvanced(str, keys) {
+	const encoded = [];
+
+	for (let i = 0; i < str.length; i++) {
+		const charCode = str.charCodeAt(i);
+		const key = keys[i % keys.length];
+		const mode = i % 4;
+
+		if (mode === 0) {
+			encoded.push(charCode + key);
+		} else if (mode === 1) {
+			encoded.push(charCode + key + 3);
+		} else if (mode === 2) {
+			encoded.push(charCode + key + 7);
+		} else {
+			encoded.push(charCode + key + 11);
+		}
+	}
+
+	return encoded;
+}
+
+function chunkArray(array, minSize = 18, maxSize = 34) {
+	const chunks = [];
+	let i = 0;
+
+	while (i < array.length) {
+		const size = randomInt(minSize, maxSize);
+		chunks.push(array.slice(i, i + size));
+		i += size;
+	}
+
+	return chunks;
+}
+
+function makeEscapedGlobalAccess(name) {
+	const bytes = stringToBytes(name);
+	return `_G[string.char(${bytes.join(",")})]`;
+}
+
+function makeHiddenFunctionGetter() {
+	const envVar = randomName();
+	const getVar = randomName();
+	const bytesVar = randomName();
+	const outVar = randomName();
+	const iVar = randomName();
+	const vVar = randomName();
+
+	return {
+		envVar,
+		getVar,
+		code:
+`local ${envVar}=getfenv and getfenv() or _ENV or _G
+local function ${getVar}(${bytesVar})
+	local ${outVar}={}
+	for ${iVar},${vVar} in ipairs(${bytesVar}) do
+		${outVar}[${iVar}]=${envVar}[string.char(115,116,114,105,110,103)][string.char(99,104,97,114)](${vVar})
+	end
+	return ${envVar}[${envVar}[string.char(116,97,98,108,101)][string.char(99,111,110,99,97,116)](${outVar})]
+end`
+	};
+}
+
+function makeAdvancedLoader(source, level) {
+	const keys = [];
+
+	for (let i = 0; i < randomInt(5, 9); i++) {
+		keys.push(randomInt(20, 140));
+	}
+
+	const encoded = encodeBytesAdvanced(source, keys);
+	const chunks = chunkArray(encoded);
+	const shuffledIndexes = chunks.map((_, index) => index);
+	const fakeChunkCount = level === "high" ? randomInt(4, 8) : level === "medium" ? randomInt(2, 4) : randomInt(1, 2);
+
+	const allChunkObjects = chunks.map((chunk, index) => ({
+		real: true,
+		index,
+		data: chunk
+	}));
+
+	for (let i = 0; i < fakeChunkCount; i++) {
+		const fakeLength = randomInt(8, 30);
+		const fake = [];
+
+		for (let j = 0; j < fakeLength; j++) {
+			fake.push(randomInt(30, 300));
+		}
+
+		allChunkObjects.push({
+			real: false,
+			index: -1,
+			data: fake
+		});
+	}
+
+	const shuffledChunks = shuffleArray(allChunkObjects);
+
+	const dataVar = randomName();
+	const orderVar = randomName();
+	const keyVar = randomName();
+	const buildVar = randomName();
+	const chunkVar = randomName();
+	const iVar = randomName();
+	const jVar = randomName();
+	const bVar = randomName();
+	const kVar = randomName();
+	const modeVar = randomName();
+	const charVar = randomName();
+	const loaderVar = randomName();
+	const hidden = makeHiddenFunctionGetter();
+
+	const chunkLua = shuffledChunks
+		.map(obj => `{${obj.data.join(",")}}`)
+		.join(",");
+
+	const orderLua = chunks
+		.map((_, realIndex) => {
+			const actualPosition = shuffledChunks.findIndex(obj => obj.real && obj.index === realIndex);
+			return actualPosition + 1;
+		})
+		.join(",");
+
+	const fakeErrors = makeFakeErrorCode(level);
+	const junkBefore = makeJunkCode(level);
+	const junkAfter = makeJunkCode(level);
+
+	const stringBytes = stringToBytes("string").join(",");
+	const charBytes = stringToBytes("char").join(",");
+	const tableBytes = stringToBytes("table").join(",");
+	const concatBytes = stringToBytes("concat").join(",");
+	const loadstringBytes = stringToBytes("loadstring").join(",");
+	const loadBytes = stringToBytes("load").join(",");
+
+	return `
+${junkBefore}
+${fakeErrors}
+${hidden.code}
+local ${dataVar}={${chunkLua}}
+local ${orderVar}={${orderLua}}
+local ${keyVar}={${keys.join(",")}}
+local ${buildVar}={}
+for ${iVar}=1,#${orderVar} do
+	local ${chunkVar}=${dataVar}[${orderVar}[${iVar}]]
+	for ${jVar}=1,#${chunkVar} do
+		local ${bVar}=${chunkVar}[${jVar}]
+		local ${kVar}=${keyVar}[((#${buildVar})%#${keyVar})+1]
+		local ${modeVar}=#${buildVar}%4
+		if ${modeVar}==0 then
+			${charVar}=${bVar}-${kVar}
+		elseif ${modeVar}==1 then
+			${charVar}=${bVar}-${kVar}-3
+		elseif ${modeVar}==2 then
+			${charVar}=${bVar}-${kVar}-7
+		else
+			${charVar}=${bVar}-${kVar}-11
+		end
+		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar})
+	end
+end
+${junkAfter}
+local ${loaderVar}=${hidden.getVar}({${loadstringBytes}}) or ${hidden.getVar}({${loadBytes}})
+${loaderVar}(${hidden.envVar}[string.char(${tableBytes})][string.char(${concatBytes})](${buildVar}))()
+`.trim();
+}
+
+function makeChunkedStringChar(source, level) {
+	const chunks = [];
+	const chunkSize = randomInt(35, 60);
+
+	for (let i = 0; i < source.length; i += chunkSize) {
+		const chunk = source.slice(i, i + chunkSize);
+		const bytes = [];
+
+		for (let j = 0; j < chunk.length; j++) {
+			const shift = randomInt(5, 50);
+			bytes.push([chunk.charCodeAt(j) + shift, shift]);
+		}
+
+		chunks.push({
+			name: randomName(),
+			bytes
+		});
+	}
+
+	const finalPieces = [];
+	let lua = makeJunkCode(level) + "\n";
+
+	for (const chunk of chunks) {
+		const inner = chunk.bytes
+			.map(pair => `string.char(${pair[0]}-${pair[1]})`)
+			.join("..");
+
+		lua += `local ${chunk.name}=${inner}\n`;
+		finalPieces.push(chunk.name);
+	}
+
+	const tableVar = randomName();
+	const loaderVar = randomName();
+
+	lua += makeFakeErrorCode(level) + "\n";
+	lua += `local ${tableVar}={${finalPieces.join(",")}}\n`;
+	lua += `local ${loaderVar}=loadstring or load\n`;
+	lua += `${loaderVar}(table.concat(${tableVar}))()`;
+
+	return lua;
+}
+
+function basicSyntaxCheck(code) {
+	const openers = (code.match(/\b(function|then|do)\b/g) || []).length;
+	const ends = (code.match(/\bend\b/g) || []).length;
+
+	if (ends > openers + 5) {
+		return "Possible extra 'end' detected.";
+	}
+
+	let paren = 0;
+	let square = 0;
+	let curly = 0;
+
+	for (const char of code) {
+		if (char === "(") paren++;
+		if (char === ")") paren--;
+		if (char === "[") square++;
+		if (char === "]") square--;
+		if (char === "{") curly++;
+		if (char === "}") curly--;
+
+		if (paren < 0 || square < 0 || curly < 0) {
+			return "Possible bracket mismatch detected.";
+		}
+	}
+
+	if (paren !== 0 || square !== 0 || curly !== 0) {
+		return "Possible missing bracket detected.";
+	}
+
+	return null;
+}
+
 function obfuscateLua() {
-  const code = inputEl.value;
-  if (!code.trim()) {
-    showStatus([{ type: 'info', text: 'Nothing to obfuscate.' }]);
-    return;
-  }
+	const code = input.value;
 
-  const doRename  = optRename.checked;
-  const doStrEnc  = optStrings.checked;
-  const doJunk    = optJunk.checked;
-  const doBytes   = optBytes.checked;
-  const junkLevel = optLevel.value;
+	if (!code.trim()) {
+		msg("No Lua code to obfuscate.", false);
+		return;
+	}
 
-  // Step 1 — Minify (strip comments + collapse whitespace)
-  // Inline minify without touching strings
-  let result = code;
-  result = result.replace(/--\[\[[\s\S]*?\]\]/g, ' ');  // multiline comments
-  result = result.replace(/--[^\[\n][^\n]*/g, '');       // single-line comments
-  result = result.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+	const syntaxIssue = basicSyntaxCheck(code);
 
-  // Step 2 — Rename local variables
-  if (doRename) result = renameLocalVars(result);
+	if (syntaxIssue) {
+		msg(syntaxIssue, false);
+		return;
+	}
 
-  // Step 3 — Encode string literals
-  if (doStrEnc) result = encodeStringsInCode(result);
+	const renameVars = getSetting("renameVars");
+	const encodeStr = getSetting("encodeStrings");
+	const byteEncode = getSetting("byteEncode");
+	const junkCode = getSetting("junkCode");
+	const level = document.getElementById("junkIntensity").value;
 
-  // Step 4 — Inject junk code lines scattered through the source
-  if (doJunk) {
-    const sourceLines = result.split('\n');
-    const junkLines   = makeJunkLines(junkLevel);
-    const spacing     = Math.max(1, Math.floor(sourceLines.length / (junkLines.length + 1)));
-    junkLines.forEach((jl, idx) => {
-      const pos = Math.min((idx + 1) * spacing, sourceLines.length);
-      sourceLines.splice(pos, 0, jl);
-    });
-    result = sourceLines.join('\n');
-  }
+	let result = minify(code);
 
-  // Step 5 — Byte-encode entire result with load()
-  if (doBytes) result = byteEncodeWhole(result);
+	if (renameVars) {
+		result = renameLocalVariables(result);
+	}
 
-  const activeSteps = [];
-  if (doRename) activeSteps.push('variable rename');
-  if (doStrEnc) activeSteps.push('string encoding');
-  if (doJunk)   activeSteps.push(`junk injection (${junkLevel})`);
-  if (doBytes)  activeSteps.push('byte encoding');
+	if (encodeStr) {
+		result = encodeStrings(result);
+	}
 
-  setOutput(result, 'Obfuscated Output');
-  showStatus([{
-    type: 'ok',
-    text: `Obfuscated via: ${activeSteps.length ? activeSteps.join(', ') : 'minify only'}.  Run with load() or loadstring() in Lua 5.x.`
-  }]);
+	if (junkCode) {
+		const junkStart = makeJunkCode(level);
+		const junkEnd = makeJunkCode(level);
+		result = `${junkStart};${result};${junkEnd}`;
+	}
+
+	if (byteEncode) {
+		result = makeAdvancedLoader(result, level);
+	} else {
+		result = makeChunkedStringChar(result, level);
+	}
+
+	output.value = result;
+	msg("Advanced obfuscation generated. It is harder to casually decode, but no client-side Lua obfuscation is impossible to reverse.");
 }
 
-// ============================================================
-// MAKE LOADSTRING
-// Encode entire source as a byte-array loadstring wrapper
-// ============================================================
-function makeLoadstring() {
-  const code = inputEl.value;
-  if (!code.trim()) {
-    showStatus([{ type: 'info', text: 'Nothing to encode.' }]);
-    return;
-  }
-
-  const bytes     = Array.from(code).map(c => c.charCodeAt(0));
-  const chunkSize = 60;
-  const used      = new Set();
-  const chunkVars = [];
-  let   out       = '-- Generated by Night Lua Toolkit\n';
-
-  for (let i = 0; i < bytes.length; i += chunkSize) {
-    const chunk = bytes.slice(i, i + chunkSize);
-    const vname = uniqueId(used);
-    chunkVars.push(vname);
-    out += `local ${vname}=string.char(${chunk.join(',')})\n`;
-  }
-
-  const finalVar = uniqueId(used);
-  out += `local ${finalVar}=${chunkVars.join('..')}\n`;
-  out += `loadstring(${finalVar})()`;
-
-  setOutput(out, 'Loadstring Output');
-  showStatus([{
-    type: 'ok',
-    text: `Loadstring generated (${bytes.length} bytes → ${chunkVars.length} chunks). Compatible with Lua 5.1+ / LuaJIT.`
-  }]);
-}
-
-// ============================================================
-// COPY OUTPUT
-// ============================================================
 function copyOutput() {
-  const val = outputEl.value;
-  if (!val.trim()) {
-    showStatus([{ type: 'info', text: 'Nothing in output to copy.' }]);
-    return;
-  }
+	if (!output.value.trim()) {
+		msg("No output to copy.", false);
+		return;
+	}
 
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(val)
-      .then(() => showStatus([{ type: 'ok', text: 'Output copied to clipboard!' }]))
-      .catch(() => fallbackCopy(val));
-  } else {
-    fallbackCopy(val);
-  }
+	output.select();
+	document.execCommand("copy");
+	msg("Output copied.");
 }
 
-function fallbackCopy(text) {
-  outputEl.select();
-  outputEl.setSelectionRange(0, 99999);
-  try {
-    document.execCommand('copy');
-    showStatus([{ type: 'ok', text: 'Output copied to clipboard!' }]);
-  } catch {
-    showStatus([{ type: 'warning', text: 'Could not auto-copy — please select the output and copy manually.' }]);
-  }
-}
-
-// ============================================================
-// CLEAR ALL
-// ============================================================
 function clearAll() {
-  inputEl.value  = '';
-  outputEl.value = '';
-  outputHint.textContent = 'Result appears here';
-  errPanel.className = 'error-panel';
-  errCount.textContent   = '';
-  errBody.innerHTML = `
-    <div class="msg info">
-      <span class="msg-icon">ℹ</span>
-      <span>Use <em>Check Errors</em> to analyse your code, or run any tool above.</span>
-    </div>`;
-  updateStats();
+	input.value = "";
+	output.value = "";
+	msg("Cleared.");
 }
-
-// ============================================================
-// INIT
-// ============================================================
-updateStats();
-
