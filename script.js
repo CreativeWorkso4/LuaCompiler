@@ -7,27 +7,30 @@ const checkBtn = document.getElementById("checkBtn");
 const defaultCode = `local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
-if player.Name == "Unknown272173" then
+if player then
   print("Player found")
 end
 `;
 
 codeInput.value = defaultCode;
 
-const luaKeywords = [
+const luaKeywords = new Set([
   "and", "break", "do", "else", "elseif", "end", "false",
   "for", "function", "if", "in", "local", "nil", "not",
   "or", "repeat", "return", "then", "true", "until", "while"
-];
+]);
 
-const robloxWords = [
+const robloxWords = new Set([
   "game", "workspace", "script", "Instance", "Vector3", "CFrame",
   "Color3", "UDim2", "Enum", "Players", "ReplicatedStorage",
   "ServerScriptService", "StarterGui", "StarterPlayer",
   "RunService", "UserInputService", "TweenService",
-  "GetService", "WaitForChild", "FindFirstChild", "FireServer",
-  "InvokeServer", "Connect", "Destroy", "Clone", "Parent"
-];
+  "Debris", "Lighting", "Teams", "SoundService", "HttpService",
+  "GetService", "WaitForChild", "FindFirstChild", "FindFirstChildOfClass",
+  "FireServer", "InvokeServer", "FireClient", "InvokeClient",
+  "Connect", "Destroy", "Clone", "Parent", "LocalPlayer",
+  "Character", "Humanoid", "HumanoidRootPart", "Mouse", "Camera"
+]);
 
 function escapeHTML(text) {
   return text
@@ -36,28 +39,138 @@ function escapeHTML(text) {
     .replaceAll(">", "&gt;");
 }
 
-function highlightLua(code) {
-  let safe = escapeHTML(code);
+function tokenizeLua(code) {
+  const tokens = [];
+  let i = 0;
 
-  safe = safe.replace(/(--.*)/g, `<span class="comment">$1</span>`);
+  while (i < code.length) {
+    const char = code[i];
 
-  safe = safe.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')/g, `<span class="string">$1</span>`);
+    if (char === "-" && code[i + 1] === "-") {
+      let start = i;
+      i += 2;
 
-  safe = safe.replace(/\b(\d+(\.\d+)?)\b/g, `<span class="number">$1</span>`);
+      while (i < code.length && code[i] !== "\n") {
+        i++;
+      }
 
-  const keywordRegex = new RegExp(`\\b(${luaKeywords.join("|")})\\b`, "g");
-  safe = safe.replace(keywordRegex, `<span class="keyword">$1</span>`);
+      tokens.push({
+        type: "comment",
+        value: code.slice(start, i)
+      });
 
-  const robloxRegex = new RegExp(`\\b(${robloxWords.join("|")})\\b`, "g");
-  safe = safe.replace(robloxRegex, `<span class="roblox">$1</span>`);
+      continue;
+    }
 
-  safe = safe.replace(/(==|~=|<=|>=|\+|-|\*|\/|%|=)/g, `<span class="operator">$1</span>`);
+    if (char === `"` || char === `'`) {
+      const quote = char;
+      const start = i;
+      i++;
 
-  return safe;
+      while (i < code.length) {
+        if (code[i] === "\\" && i + 1 < code.length) {
+          i += 2;
+          continue;
+        }
+
+        if (code[i] === quote) {
+          i++;
+          break;
+        }
+
+        i++;
+      }
+
+      tokens.push({
+        type: "string",
+        value: code.slice(start, i)
+      });
+
+      continue;
+    }
+
+    if (/\d/.test(char)) {
+      const start = i;
+
+      while (i < code.length && /[\d.]/.test(code[i])) {
+        i++;
+      }
+
+      tokens.push({
+        type: "number",
+        value: code.slice(start, i)
+      });
+
+      continue;
+    }
+
+    if (/[A-Za-z_]/.test(char)) {
+      const start = i;
+
+      while (i < code.length && /[A-Za-z0-9_]/.test(code[i])) {
+        i++;
+      }
+
+      const word = code.slice(start, i);
+
+      if (luaKeywords.has(word)) {
+        tokens.push({ type: "keyword", value: word });
+      } else if (robloxWords.has(word)) {
+        tokens.push({ type: "roblox", value: word });
+      } else {
+        tokens.push({ type: "plain", value: word });
+      }
+
+      continue;
+    }
+
+    if ("=+-*/%<>~".includes(char)) {
+      const twoCharOperator = code.slice(i, i + 2);
+
+      if (["==", "~=", "<=", ">=", ".."].includes(twoCharOperator)) {
+        tokens.push({
+          type: "operator",
+          value: twoCharOperator
+        });
+
+        i += 2;
+        continue;
+      }
+
+      tokens.push({
+        type: "operator",
+        value: char
+      });
+
+      i++;
+      continue;
+    }
+
+    tokens.push({
+      type: "plain",
+      value: char
+    });
+
+    i++;
+  }
+
+  return tokens;
 }
 
-function getLineNumber(code, index) {
-  return code.slice(0, index).split("\n").length;
+function highlightLua(code) {
+  const tokens = tokenizeLua(code);
+
+  return tokens
+    .map(token => {
+      const value = escapeHTML(token.value);
+
+      if (token.type === "plain") {
+        return value;
+      }
+
+      return `<span class="${token.type}">${value}</span>`;
+    })
+    .join("");
 }
 
 function addIssue(issues, type, line, title, message, fix = "") {
@@ -68,6 +181,10 @@ function addIssue(issues, type, line, title, message, fix = "") {
     message,
     fix
   });
+}
+
+function lineHasWord(line, word) {
+  return new RegExp(`\\b${word}\\b`).test(line);
 }
 
 function checkLua(code) {
@@ -160,40 +277,62 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*if\s+.*[^~=<>]=[^=].*\s+then\b/.test(line)) {
+    if (/\bwaitforchild\s*\(/i.test(line)) {
+      addIssue(
+        issues,
+        "error",
+        lineNumber,
+        "Incorrect WaitForChild capitalization",
+        "Roblox Lua is case-sensitive. waitforchild should be WaitForChild.",
+        `Use object:WaitForChild("Name")`
+      );
+    }
+
+    if (/\bfindfirstchild\s*\(/i.test(line)) {
+      addIssue(
+        issues,
+        "error",
+        lineNumber,
+        "Incorrect FindFirstChild capitalization",
+        "Roblox Lua is case-sensitive. findfirstchild should be FindFirstChild.",
+        `Use object:FindFirstChild("Name")`
+      );
+    }
+
+    if (/^\s*if\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(line)) {
       addIssue(
         issues,
         "error",
         lineNumber,
         "Possible assignment inside if statement",
         "You used = inside an if statement. For comparison, use ==.",
-        `Example: if x == 5 then`
+        `Example: if value == 5 then`
       );
     }
 
-    if (/^\s*elseif\s+.*[^~=<>]=[^=].*\s+then\b/.test(line)) {
+    if (/^\s*elseif\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(line)) {
       addIssue(
         issues,
         "error",
         lineNumber,
         "Possible assignment inside elseif statement",
         "You used = inside an elseif statement. For comparison, use ==.",
-        `Example: elseif x == 5 then`
+        `Example: elseif value == 5 then`
       );
     }
 
-    if (/^\s*while\s+.*[^~=<>]=[^=].*\s+do\b/.test(line)) {
+    if (/^\s*while\s+.*(?<![<>=~])=(?![=]).*\s+do\b/.test(line)) {
       addIssue(
         issues,
         "error",
         lineNumber,
         "Possible assignment inside while statement",
         "You used = inside a while condition. For comparison, use ==.",
-        `Example: while x == 5 do`
+        `Example: while value == 5 do`
       );
     }
 
-    if (/^\s*if\b/.test(trimmed) && !/\bthen\b/.test(trimmed)) {
+    if (/^\s*if\b/.test(trimmed) && !lineHasWord(trimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -204,7 +343,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*elseif\b/.test(trimmed) && !/\bthen\b/.test(trimmed)) {
+    if (/^\s*elseif\b/.test(trimmed) && !lineHasWord(trimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -215,7 +354,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*while\b/.test(trimmed) && !/\bdo\b/.test(trimmed)) {
+    if (/^\s*while\b/.test(trimmed) && !lineHasWord(trimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -226,7 +365,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*for\b/.test(trimmed) && !/\bdo\b/.test(trimmed)) {
+    if (/^\s*for\b/.test(trimmed) && !lineHasWord(trimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -315,27 +454,69 @@ function checkLua(code) {
   });
 
   if (parenCount > 0) {
-    addIssue(issues, "error", lines.length, "Missing closing parenthesis", "You opened more parentheses than you closed.", "Add a )");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Missing closing parenthesis",
+      "You opened more parentheses than you closed.",
+      "Add a )"
+    );
   }
 
   if (parenCount < 0) {
-    addIssue(issues, "error", lines.length, "Extra closing parenthesis", "You closed more parentheses than you opened.", "Remove an extra )");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Extra closing parenthesis",
+      "You closed more parentheses than you opened.",
+      "Remove an extra )"
+    );
   }
 
   if (bracketCount > 0) {
-    addIssue(issues, "error", lines.length, "Missing closing bracket", "You opened more brackets than you closed.", "Add a ]");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Missing closing bracket",
+      "You opened more brackets than you closed.",
+      "Add a ]"
+    );
   }
 
   if (bracketCount < 0) {
-    addIssue(issues, "error", lines.length, "Extra closing bracket", "You closed more brackets than you opened.", "Remove an extra ]");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Extra closing bracket",
+      "You closed more brackets than you opened.",
+      "Remove an extra ]"
+    );
   }
 
   if (braceCount > 0) {
-    addIssue(issues, "error", lines.length, "Missing closing brace", "You opened more table braces than you closed.", "Add a }");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Missing closing brace",
+      "You opened more table braces than you closed.",
+      "Add a }"
+    );
   }
 
   if (braceCount < 0) {
-    addIssue(issues, "error", lines.length, "Extra closing brace", "You closed more table braces than you opened.", "Remove an extra }");
+    addIssue(
+      issues,
+      "error",
+      lines.length,
+      "Extra closing brace",
+      "You closed more table braces than you opened.",
+      "Remove an extra }"
+    );
   }
 
   blockStack.forEach(block => {
@@ -373,8 +554,8 @@ function renderDiagnostics(issues) {
     item.className = `issue ${issue.type}`;
 
     item.innerHTML = `
-      <strong>${issue.type.toUpperCase()} on line ${issue.line}: ${issue.title}</strong>
-      <div>${issue.message}</div>
+      <strong>${issue.type.toUpperCase()} on line ${issue.line}: ${escapeHTML(issue.title)}</strong>
+      <div>${escapeHTML(issue.message)}</div>
       ${issue.fix ? `<div>Fix: <code>${escapeHTML(issue.fix)}</code></div>` : ""}
     `;
 
@@ -384,6 +565,7 @@ function renderDiagnostics(issues) {
 
 function updateEditor() {
   const code = codeInput.value;
+
   highlighting.innerHTML = highlightLua(code) + "\n";
   renderDiagnostics(checkLua(code));
 }
