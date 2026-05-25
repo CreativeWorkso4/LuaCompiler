@@ -1,4 +1,4 @@
-const APP_VERSION = "v1.6";
+const APP_VERSION = "v1.7";
 const APP_NAME = "Traceless";
 const WATERMARK_TEXT = "Obfuscated by Traceless";
 
@@ -71,6 +71,20 @@ function stringToBytes(str) {
 	}
 
 	return bytes;
+}
+
+function getWatermarkSum() {
+	let expectedSum = 0;
+
+	for (let i = 0; i < WATERMARK_TEXT.length; i++) {
+		expectedSum += WATERMARK_TEXT.charCodeAt(i);
+	}
+
+	return expectedSum;
+}
+
+function getWatermarkByte(index) {
+	return WATERMARK_TEXT.charCodeAt(index % WATERMARK_TEXT.length);
 }
 
 function removeComments(code) {
@@ -505,24 +519,26 @@ function makeJunkCode(level) {
 	return shuffleArray(junk).join(";");
 }
 
-function encodeBytesAdvanced(str, keys) {
+function encodeBytesAdvanced(str, keys, watermarkMod) {
 	const encoded = [];
 
 	for (let i = 0; i < str.length; i++) {
 		const charCode = str.charCodeAt(i);
 		const key = keys[i % keys.length];
 		const mode = i % 5;
+		const watermarkByte = getWatermarkByte(i);
+		const watermarkPart = watermarkByte % watermarkMod;
 
 		if (mode === 0) {
-			encoded.push(charCode + key);
+			encoded.push(charCode + key + watermarkPart);
 		} else if (mode === 1) {
-			encoded.push(charCode + key + 3);
+			encoded.push(charCode + key + 3 + watermarkPart);
 		} else if (mode === 2) {
-			encoded.push(charCode + key + 7);
+			encoded.push(charCode + key + 7 + watermarkPart);
 		} else if (mode === 3) {
-			encoded.push(charCode + key + 11);
+			encoded.push(charCode + key + 11 + watermarkPart);
 		} else {
-			encoded.push(charCode + key + 17);
+			encoded.push(charCode + key + 17 + watermarkPart);
 		}
 	}
 
@@ -565,16 +581,6 @@ end`
 	};
 }
 
-function getWatermarkSum() {
-	let expectedSum = 0;
-
-	for (let i = 0; i < WATERMARK_TEXT.length; i++) {
-		expectedSum += WATERMARK_TEXT.charCodeAt(i);
-	}
-
-	return expectedSum;
-}
-
 function makeWatermarkGuard() {
 	const wmKey = "TRC_" + randomName(12);
 	const wmLenVar = randomName();
@@ -609,13 +615,18 @@ end`;
 	};
 }
 
-function makeWatermarkDecodeOffset(watermark) {
+function makeWatermarkIntegrityOffset(watermark) {
 	return `((${watermark.lenVar}-${watermark.expectedLen})+(${watermark.sumVar}-${watermark.expectedSum}))`;
+}
+
+function makeWatermarkByteRuntime(watermark, indexExpression, watermarkMod) {
+	return `(string.byte(${watermark.varName},((${indexExpression})%#${watermark.varName})+1)%${watermarkMod})`;
 }
 
 function makeAdvancedLoader(source, level) {
 	const watermark = makeWatermarkGuard();
-	const wmOffset = makeWatermarkDecodeOffset(watermark);
+	const watermarkMod = randomInt(7, 29);
+	const wmIntegrityOffset = makeWatermarkIntegrityOffset(watermark);
 
 	const keys = [];
 
@@ -623,7 +634,7 @@ function makeAdvancedLoader(source, level) {
 		keys.push(randomInt(20, 160));
 	}
 
-	const encoded = encodeBytesAdvanced(source, keys);
+	const encoded = encodeBytesAdvanced(source, keys, watermarkMod);
 	const chunks = chunkArray(encoded);
 
 	const fakeChunkCount = level === "high"
@@ -666,6 +677,7 @@ function makeAdvancedLoader(source, level) {
 	const kVar = randomName();
 	const modeVar = randomName();
 	const charVar = randomName();
+	const wmByteVar = randomName();
 	const loaderVar = randomName();
 	const hidden = makeHiddenFunctionGetter();
 
@@ -717,7 +729,9 @@ for ${iVar}=1,#${orderVar} do
 		else
 			${charVar}=${bVar}-${kVar}-17
 		end
-		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar}+${wmOffset})
+
+		local ${wmByteVar}=${makeWatermarkByteRuntime(watermark, `#${buildVar}`, watermarkMod)}
+		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar}-${wmByteVar}+${wmIntegrityOffset})
 	end
 end
 ${junkAfter}
@@ -728,7 +742,8 @@ ${loaderVar}(${hidden.envVar}[string.char(${tableBytes})][string.char(${concatBy
 
 function makeChunkedStringChar(source, level) {
 	const watermark = makeWatermarkGuard();
-	const wmOffset = makeWatermarkDecodeOffset(watermark);
+	const watermarkMod = randomInt(7, 29);
+	const wmIntegrityOffset = makeWatermarkIntegrityOffset(watermark);
 
 	const chunks = [];
 	const chunkSize = randomInt(35, 60);
@@ -738,8 +753,10 @@ function makeChunkedStringChar(source, level) {
 		const bytes = [];
 
 		for (let j = 0; j < chunk.length; j++) {
+			const absoluteIndex = i + j;
 			const shift = randomInt(5, 50);
-			bytes.push([chunk.charCodeAt(j) + shift, shift]);
+			const watermarkPart = getWatermarkByte(absoluteIndex) % watermarkMod;
+			bytes.push([chunk.charCodeAt(j) + shift + watermarkPart, shift, absoluteIndex]);
 		}
 
 		chunks.push({
@@ -753,7 +770,14 @@ function makeChunkedStringChar(source, level) {
 
 	for (const chunk of chunks) {
 		const inner = chunk.bytes
-			.map(pair => `string.char((${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})+${wmOffset})`)
+			.map(pair => {
+				const encodedByte = pair[0];
+				const shift = pair[1];
+				const absoluteIndex = pair[2];
+				const wmByteRuntime = makeWatermarkByteRuntime(watermark, absoluteIndex.toString(), watermarkMod);
+
+				return `string.char((${makeLuaByteExpression(encodedByte)}-${makeLuaByteExpression(shift)}-${wmByteRuntime})+${wmIntegrityOffset})`;
+			})
 			.join("..");
 
 		lua += `local ${chunk.name}=${inner}\n`;
@@ -849,7 +873,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Traceless obfuscation generated. v1.6 watermark now affects decode math.");
+	msg("Traceless obfuscation generated. v1.7 watermark is baked into the key schedule.");
 }
 
 function copyOutput() {
