@@ -1,79 +1,48 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-	<meta charset="UTF-8" />
-	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-	<title>Traceless</title>
-	<link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lua Compiler</title>
+  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-	<div class="app">
-		<header>
-			<div>
-				<h1 class="title-gradient">Traceless</h1>
-				<p>Advanced browser Lua obfuscator with configurable protection settings.</p>
-			</div>
+  <main class="app">
+    <section class="hero">
+      <div>
+        <h1>Lua Compiler</h1>
+        <p>Live Lua syntax highlighting, Roblox Lua checks, and error detection.</p>
+      </div>
 
-			<div class="header-badges">
-				<span class="version-badge" id="versionBadge">v1.3</span>
-			</div>
-		</header>
+      <button id="checkBtn">Check Code</button>
+    </section>
 
-		<section class="settings">
-			<label>
-				<input type="checkbox" id="renameVars" checked />
-				Rename local variables
-			</label>
+    <section class="editor-shell">
+      <div class="editor-top">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="file-name">main.lua</span>
+      </div>
 
-			<label>
-				<input type="checkbox" id="encodeStrings" checked />
-				Encode strings
-			</label>
+      <div class="editor-wrap">
+        <pre id="highlighting" aria-hidden="true"></pre>
+        <textarea
+          id="codeInput"
+          spellcheck="false"
+          autocomplete="off"
+          autocapitalize="off"
+        ></textarea>
+      </div>
+    </section>
 
-			<label>
-				<input type="checkbox" id="byteEncode" checked />
-				Byte encode final output
-			</label>
+    <section class="output">
+      <h2>Diagnostics</h2>
+      <div id="status" class="status good">No errors detected.</div>
+      <div id="diagnostics"></div>
+    </section>
+  </main>
 
-			<label>
-				<input type="checkbox" id="junkCode" checked />
-				Add junk code
-			</label>
-
-			<label>
-				Junk intensity
-				<select id="junkIntensity">
-					<option value="low">Low</option>
-					<option value="medium" selected>Medium</option>
-					<option value="high">High</option>
-				</select>
-			</label>
-		</section>
-
-		<div class="toolbar">
-			<button onclick="obfuscateLua()">Obfuscate</button>
-			<button onclick="minifyOnly()">Minify Only</button>
-			<button onclick="copyOutput()">Copy Output</button>
-			<button class="danger" onclick="clearAll()">Clear</button>
-		</div>
-
-		<main class="grid">
-			<section class="panel">
-				<div class="panel-title">Input Lua</div>
-				<textarea id="input" placeholder="Paste Lua here..."></textarea>
-			</section>
-
-			<section class="panel">
-				<div class="panel-title">Output</div>
-				<textarea id="output" readonly placeholder="Obfuscated code appears here..."></textarea>
-			</section>
-		</main>
-
-		<section class="messages" id="messages">
-			Ready.
-		</section>
-	</div>
-
-	<script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
