@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Night Lua Compiler</title>
+
+	<style>
+		* {
+			box-sizing: border-box;
+			margin: 0;
+			padding: 0;
+			font-family: Arial, Helvetica, sans-serif;
+		}
+
+		body {
+			min-height: 100vh;
+			background:
+				radial-gradient(circle at top left, rgba(88, 101, 242, 0.16), transparent 32%),
+				radial-gradient(circle at bottom right, rgba(120, 40, 200, 0.12), transparent 34%),
+				#050508;
+			color: #f2f2ff;
+			padding: 22px;
+		}
+
+		.app {
+			max-width: 1250px;
+			margin: 0 auto;
+		}
+
+		.header {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			gap: 16px;
+			margin-bottom: 18px;
+			flex-wrap: wrap;
+		}
+
+		.brand h1 {
+			font-size: 32px;
+			letter-spacing: -1px;
+		}
+
+		.brand p {
+			color: #9f9fb8;
+			margin-top: 5px;
+			font-size: 14px;
+		}
+
+		.badge {
+			background: #10101a;
+			color: #bfc2ff;
+			border-radius: 999px;
+			padding: 9px 13px;
+			font-size: 13px;
+		}
+
+		.grid {
+			display: grid;
+			grid-template-columns: 1fr 1fr;
+			gap: 16px;
+		}
+
+		.panel {
+			background: rgba(12, 12, 18, 0.96);
+			border-radius: 14px;
+			padding: 14px;
+			min-height: 300px;
+		}
+
+		.panel-title {
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			margin-bottom: 10px;
+			color: #f2f2ff;
+			font-weight: bold;
+		}
+
+		.panel-title span {
+			color: #8c8ca3;
+			font-size: 12px;
+			font-weight: normal;
+		}
+
+		textarea {
+			width: 100%;
+			min-height: 430px;
+			background: #06060a;
+			color: #e9e9ff;
+			border: none;
+			outline: none;
+			border-radius: 10px;
+			padding: 13px;
+			resize: vertical;
+			font-size: 14px;
+			line-height: 1.5;
+			tab-size: 4;
+			white-space: pre;
+		}
+
+		textarea::placeholder {
+			color: #626278;
+		}
+
+		.toolbar {
+			display: flex;
+			gap: 9px;
+			flex-wrap: wrap;
+			margin: 15px 0;
+		}
+
+		button {
+			border: none;
+			outline: none;
+			cursor: pointer;
+			background: #5865f2;
+			color: white;
+			padding: 10px 13px;
+			border-radius: 9px;
+			font-weight: bold;
+			font-size: 13px;
+			transition: 0.15s ease;
+		}
+
+		button:hover {
+			transform: translateY(-1px);
+			background: #6b75ff;
+		}
+
+		button.secondary {
+			background: #1b1b28;
+			color: #e5e5f5;
+		}
+
+		button.secondary:hover {
+			background: #272738;
+		}
+
+		button.danger {
+			background: #c0394a;
+		}
+
+		button.danger:hover {
+			background: #e04b5c;
+		}
+
+		.status {
+			background: #0c0c14;
+			border-radius: 14px;
+			padding: 14px;
+			margin-top: 16px;
+		}
+
+		.status h3 {
+			margin-bottom: 10px;
+		}
+
+		.error-list {
+			display: grid;
+			gap: 8px;
+		}
+
+		.message {
+			border-radius: 9px;
+			padding: 10px 12px;
+			font-size: 13px;
+			line-height: 1.45;
+			background: #151522;
+			color: #dadaf2;
+		}
+
+		.message.ok {
+			background: rgba(40, 170, 100, 0.14);
+			color: #8dffbd;
+		}
+
+		.message.warn {
+			background: rgba(255, 195, 70, 0.12);
+			color: #ffd276;
+		}
+
+		.message.err {
+			background: rgba(255, 70, 90, 0.13);
+			color: #ff8d9b;
+		}
+
+		.stats {
+			display: flex;
+			gap: 9px;
+			flex-wrap: wrap;
+			margin-top: 10px;
+		}
+
+		.stat {
+			background: #11111b;
+			color: #bdbdd8;
+			border-radius: 999px;
+			padding: 7px 10px;
+			font-size: 12px;
+		}
+
+		.small-note {
+			color: #85859c;
+			font-size: 12px;
+			margin-top: 10px;
+			line-height: 1.4;
+		}
+
+		@media (max-width: 850px) {
+			.grid {
+				grid-template-columns: 1fr;
+			}
+
+			textarea {
+				min-height: 320px;
+			}
+		}
+	</style>
+</head>
+
+<body>
+	<div class="app">
+		<div class="header">
+			<div class="brand">
+				<h1>Night Lua Compiler</h1>
+				<p>Check Lua code, show errors, minify, obfuscate, and generate loadstrings.</p>
+			</div>
+
+			<div class="badge">GitHub Pages Ready</div>
+		</div>
+
+		<div class="toolbar">
+			<button onclick="checkSyntax()">Check Errors</button>
+			<button onclick="minifyLua()">Minify</button>
+			<button onclick="obfuscateLua()">Obfuscate</button>
+			<button onclick="makeLoadstring()">Make Loadstring</button>
+			<button class="secondary" onclick="beautifyLua()">Beautify</button>
+			<button class="secondary" onclick="copyOutput()">Copy Output</button>
+			<button class="danger" onclick="clearAll()">Clear</button>
+		</div>
+
+		<div class="grid">
+			<div class="panel">
+				<div class="panel-title">
+					Input Lua
+					<span id="inputInfo">0 chars</span>
+				</div>
+
+				<textarea id="input" spellcheck="false" placeholder="Paste your Lua code here..."></textarea>
+			</div>
+
+			<div class="panel">
+				<div class="panel-title">
+					Output
+					<span id="outputInfo">0 chars</span>
+				</div>
+
+				<textarea id="output" spellcheck="false" placeholder="Output will appear here..." readonly></textarea>
+			</div>
+		</div>
+
+		<div class="status">
+			<h3>Compiler Messages</h3>
+			<div id="messages" class="error-list">
+				<div class="message warn">Paste Lua code, then press “Check Errors”.</div>
+			</div>
+
+			<div class="stats">
+				<div class="stat" id="lineCount">Lines: 0</div>
+				<div class="stat" id="charCount">Characters: 0</div>
+				<div class="stat" id="tokenCount">Estimated tokens: 0</div>
+			</div>
+
+			<div class="small-note">
+				This is a browser-only Lua checker. It catches common syntax issues like unclosed strings, missing <b>end</b>, extra <b>end</b>, bracket errors, and block mismatches. For true Lua bytecode compilation, you’d need a backend or Lua/WASM later.
+			</div>
+		</div>
+	</div>
+
+	<script>
+		const input = document.getElementById("input");
+		const output = document.getElementById("output");
+		const messages = document.getElementById("messages");
+
+		input.addEventListener("input", updateStats);
+		output.addEventListener("input", updateStats);
+
+		function updateStats() {
+			const code = input.value;
+			const out = output.value;
+
+			document.getElementById("inputInfo").textContent = `${code.length} chars`;
+			document.getElementById("outputInfo").textContent = `${out.length} chars`;
+
+			const lines = code.length ? code.split(/\r?\n/).length : 0;
+			const estimatedTokens = code.trim() ? code.trim().split(/\s+/).length : 0;
+
+			document.getElementById("lineCount").textContent = `Lines: ${lines}`;
+			document.getElementById("charCount").textContent = `Characters: ${code.length}`;
+			document.getElementById("tokenCount").textContent = `Estimated tokens: ${estimatedTokens}`;
+		}
+
+		function setMessages(items) {
+			messages.innerHTML = "";
+
+			if (!items.length) {
+				messages.innerHTML = `<div class="message ok">No issues found.</div>`;
+				return;
+			}
+
+			for (const item of items) {
+				const div = document.createElement("div");
+				div.className = `message ${item.type || "warn"}`;
+				div.textContent = item.text;
+				messages.appendChild(div);
+			}
+		}
+
+		function stripCommentsPreserveStrings(code) {
+			let result = "";
+			let i = 0;
+			let inString = false;
+			let quote = "";
+			let inLongString = false;
+			let longClose = "";
+
+			while (i < code.length) {
+				const char = code[i];
+				const next = code[i + 1];
+
+				if (inLongString) {
+					if (code.startsWith(longClose, i)) {
+						result += longClose;
+						i += longClose.length;
+						inLongString = false;
+					} else {
+						result += char;
+						i++;
+					}
+					continue;
+				}
+
+				if (inString) {
+					result += char;
+
+					if (char === "\\" && i + 1 < code.length) {
+						result += code[i + 1];
+						i += 2;
+						continue;
+					}
+
+					if (char === quote) {
+						inString = false;
+						quote = "";
+					}
+
+					i++;
+					continue;
+				}
+
+				if (char === "'" || char === '"') {
+					inString = true;
+					quote = char;
+					result += char;
+					i++;
+					continue;
+				}
+
+				if (char === "[" && next === "[") {
+					inLongString = true;
+					longClose = "]]";
+					result += "[[";
+					i += 2;
+					continue;
+				}
+
+				if (char === "-" && next === "-") {
+					if (code[i + 2] === "[" && code[i + 3] === "[") {
+						i += 4;
+						while (i < code.length && !code.startsWith("]]", i)) {
+							i++;
+						}
+						i += 2;
+					} else {
+						while (i < code.length && code[i] !== "\n") {
+							i++;
+						}
+					}
+					continue;
+				}
+
+				result += char;
+				i++;
+			}
+
+			return result;
+		}
+
+		function tokenizeLua(code) {
+			const clean = stripCommentsPreserveStrings(code);
+			const tokens = [];
+			let i = 0;
+			let line = 1;
+
+			while (i < clean.length) {
+				const char = clean[i];
+
+				if (char === "\n") {
+					line++;
+					i++;
+					continue;
+				}
+
+				if (/\s/.test(char)) {
+					i++;
+					continue;
+				}
+
+				if (char === "'" || char === '"') {
+					const quote = char;
+					const startLine = line;
+					let value = char;
+					i++;
+					let closed = false;
+
+					while (i < clean.length) {
+						const c = clean[i];
+						value += c;
+
+						if (c === "\n") line++;
+
+						if (c === "\\" && i + 1 < clean.length) {
+							value += clean[i + 1];
+							i += 2;
+							continue;
+						}
+
+						if (c === quote) {
+							closed = true;
+							i++;
+							break;
+						}
+
+						i++;
+					}
+
+					tokens.push({ type: "string", value, line: startLine, closed });
+					continue;
+				}
+
+				if (/[A-Za-z_]/.test(char)) {
+					const start = i;
+					const startLine = line;
+
+					while (i < clean.length && /[A-Za-z0-9_]/.test(clean[i])) {
+						i++;
+					}
+
+					tokens.push({
+						type: "word",
+						value: clean.slice(start, i),
+						line: startLine
+					});
+
+					continue;
+				}
+
+				if (/[0-9]/.test(char)) {
+					const start = i;
+					const startLine = line;
+
+					while (i < clean.length && /[0-9._A-Fa-fxX]/.test(clean[i])) {
+						i++;
+					}
+
+					tokens.push({
+						type: "number",
+						value: clean.slice(start, i),
+						line: startLine
+					});
+
+					continue;
+				}
+
+				tokens.push({
+					type: "symbol",
+					value: char,
+					line
+				});
+
+				i++;
+			}
+
+			return tokens;
+		}
+
+		function checkLua(code) {
+			const errors = [];
+			const warnings = [];
+
+			if (!code.trim()) {
+				return [{ type: "warn", text: "No code entered." }];
+			}
+
+			const tokens = tokenizeLua(code);
+
+			for (const token of tokens) {
+				if (token.type === "string" && !token.closed) {
+					errors.push({
+						type: "err",
+						text: `Line ${token.line}: Unclosed string.`
+					});
+				}
+			}
+
+			const bracketStack = [];
+			const bracketPairs = {
+				"(": ")",
+				"{": "}",
+				"[": "]"
+			};
+
+			for (const token of tokens) {
+				if (token.type !== "symbol") continue;
+
+				if (bracketPairs[token.value]) {
+					bracketStack.push(token);
+				} else if ([")", "}", "]"].includes(token.value)) {
+					const last = bracketStack.pop();
+
+					if (!last) {
+						errors.push({
+							type: "err",
+							text: `Line ${token.line}: Extra closing bracket "${token.value}".`
+						});
+					} else if (bracketPairs[last.value] !== token.value) {
+						errors.push({
+							type: "err",
+							text: `Line ${token.line}: Bracket mismatch. Opened "${last.value}" on line ${last.line}, but closed with "${token.value}".`
+						});
+					}
+				}
+			}
+
+			for (const open of bracketStack) {
+				errors.push({
+					type: "err",
+					text: `Line ${open.line}: Missing closing bracket "${bracketPairs[open.value]}".`
+				});
+			}
+
+			const blockStack = [];
+			const blockOpeners = new Set(["function", "then", "do", "repeat"]);
+			const endClosers = new Set(["function", "then", "do"]);
+
+			for (let i = 0; i < tokens.length; i++) {
+				const token = tokens[i];
+
+				if (token.type !== "word") continue;
+
+				const value = token.value;
+
+				if (value === "function") {
+					blockStack.push({ type: "function", line: token.line });
+				}
+
+				if (value === "then") {
+					blockStack.push({ type: "then", line: token.line });
+				}
+
+				if (value === "do") {
+					const prev = tokens[i - 1] ? tokens[i - 1].value : "";
+					blockStack.push({ type: "do", line: token.line, prev });
+				}
+
+				if (value === "repeat") {
+					blockStack.push({ type: "repeat", line: token.line });
+				}
+
+				if (value === "end") {
+					let foundIndex = -1;
+
+					for (let s = blockStack.length - 1; s >= 0; s--) {
+						if (endClosers.has(blockStack[s].type)) {
+							foundIndex = s;
+							break;
+						}
+
+						if (blockStack[s].type === "repeat") {
+							break;
+						}
+					}
+
+					if (foundIndex === -1) {
+						errors.push({
+							type: "err",
+							text: `Line ${token.line}: Extra "end" or missing opener.`
+						});
+					} else {
+						blockStack.splice(foundIndex, 1);
+					}
+				}
+
+				if (value === "until") {
+					let last = blockStack.pop();
+
+					if (!last || last.type !== "repeat") {
+						errors.push({
+							type: "err",
+							text: `Line ${token.line}: "until" without matching "repeat".`
+						});
+
+						if (last) blockStack.push(last);
+					}
+				}
+			}
+
+			for (const block of blockStack) {
+				if (block.type === "repeat") {
+					errors.push({
+						type: "err",
+						text: `Line ${block.line}: Missing "until" for "repeat".`
+					});
+				} else {
+					errors.push({
+						type: "err",
+						text: `Line ${block.line}: Missing "end" for "${block.type}".`
+					});
+				}
+			}
+
+			if (/\bloadstring\s*\(/.test(code)) {
+				warnings.push({
+					type: "warn",
+					text: `Warning: loadstring detected. Make sure you trust the code being loaded.`
+				});
+			}
+
+			if (/\bHttpGet\s*\(/.test(code)) {
+				warnings.push({
+					type: "warn",
+					text: `Warning: HttpGet detected. Remote code can change anytime.`
+				});
+			}
+
+			if (/\bgetgenv\s*\(/.test(code) || /\bgetfenv\s*\(/.test(code)) {
+				warnings.push({
+					type: "warn",
+					text: `Warning: environment access detected. Check that this is intended.`
+				});
+			}
+
+			if (errors.length) return errors.concat(warnings);
+
+			return [{ type: "ok", text: "No syntax issues found by the browser checker." }].concat(warnings);
+		}
+
+		function checkSyntax() {
+			const code = input.value;
+			const result = checkLua(code);
+			setMessages(result);
+			updateStats();
+		}
+
+		function removeComments(code) {
+			let result = "";
+			let i = 0;
+			let inString = false;
+			let quote = "";
+
+			while (i < code.length) {
+				const char = code[i];
+				const next = code[i + 1];
+
+				if (inString) {
+					result += char;
+
+					if (char === "\\" && i + 1 < code.length) {
+						result += code[i + 1];
+						i += 2;
+						continue;
+					}
+
+					if (char === quote) {
+						inString = false;
+						quote = "";
+					}
+
+					i++;
+					continue;
+				}
+
+				if (char === "'" || char === '"') {
+					inString = true;
+					quote = char;
+					result += char;
+					i++;
+					continue;
+				}
+
+				if (char === "-" && next === "-") {
+					while (i < code.length && code[i] !== "\n") {
+						i++;
+					}
+					continue;
+				}
+
+				result += char;
+				i++;
+			}
+
+			return result;
+		}
+
+		function minifyCode(code) {
+			const noComments = removeComments(code);
+
+			return noComments
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.filter(line => line.length > 0)
+				.join(" ")
+				.replace(/\s+/g, " ")
+				.replace(/\s*([=+\-*/%<>~#.,;:{}()[\]])\s*/g, "$1")
+				.trim();
+		}
+
+		function minifyLua() {
+			const code = input.value;
+
+			if (!code.trim()) {
+				setMessages([{ type: "warn", text: "No code to minify." }]);
+				return;
+			}
+
+			const checked = checkLua(code);
+			const hasError = checked.some(item => item.type === "err");
+
+			if (hasError) {
+				setMessages(checked);
+				return;
+			}
+
+			const result = minifyCode(code);
+			output.value = result;
+			setMessages([{ type: "ok", text: "Minified successfully." }]);
+			updateStats();
+		}
+
+		function randomName(length = 12) {
+			const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+			let result = "";
+
+			for (let i = 0; i < length; i++) {
+				result += chars[Math.floor(Math.random() * chars.length)];
+			}
+
+			return result;
+		}
+
+		function luaEscape(str) {
+			return str
+				.replace(/\\/g, "\\\\")
+				.replace(/"/g, '\\"')
+				.replace(/\n/g, "\\n")
+				.replace(/\r/g, "\\r")
+				.replace(/\t/g, "\\t");
+		}
+
+		function toByteArray(str) {
+			const bytes = [];
+
+			for (let i = 0; i < str.length; i++) {
+				bytes.push(str.charCodeAt(i));
+			}
+
+			return bytes;
+		}
+
+		function obfuscateLua() {
+			const code = input.value;
+
+			if (!code.trim()) {
+				setMessages([{ type: "warn", text: "No code to obfuscate." }]);
+				return;
+			}
+
+			const checked = checkLua(code);
+			const hasError = checked.some(item => item.type === "err");
+
+			if (hasError) {
+				setMessages(checked);
+				return;
+			}
+
+			const source = minifyCode(code);
+			const bytes = toByteArray(source);
+
+			const tableVar = randomName();
+			const stringVar = randomName();
+			const loadVar = randomName();
+
+			const chunks = [];
+			const chunkSize = 22;
+
+			for (let i = 0; i < bytes.length; i += chunkSize) {
+				chunks.push(bytes.slice(i, i + chunkSize).join(","));
+			}
+
+			const byteTable = chunks.map(chunk => `{${chunk}}`).join(",");
+
+			const result =
+`local ${tableVar}={${byteTable}}
+local ${stringVar}=""
+for _,v in ipairs(${tableVar}) do
+	for _,b in ipairs(v) do
+		${stringVar}=${stringVar}..string.char(b)
+	end
+end
+local ${loadVar}=loadstring or load
+${loadVar}(${stringVar})()`;
+
+			output.value = result;
+			setMessages([{ type: "ok", text: "Obfuscated successfully with byte encoding." }]);
+			updateStats();
+		}
+
+		function makeLoadstring() {
+			const code = input.value;
+
+			if (!code.trim()) {
+				setMessages([{ type: "warn", text: "No code to convert." }]);
+				return;
+			}
+
+			const checked = checkLua(code);
+			const hasError = checked.some(item => item.type === "err");
+
+			if (hasError) {
+				setMessages(checked);
+				return;
+			}
+
+			const escaped = luaEscape(code);
+			output.value = `loadstring("${escaped}")()`;
+			setMessages([{ type: "ok", text: "Loadstring generated successfully." }]);
+			updateStats();
+		}
+
+		function beautifyLua() {
+			const code = input.value;
+
+			if (!code.trim()) {
+				setMessages([{ type: "warn", text: "No code to beautify." }]);
+				return;
+			}
+
+			const lines = code
+				.replace(/;/g, ";\n")
+				.split(/\r?\n/)
+				.map(line => line.trim())
+				.filter(Boolean);
+
+			let indent = 0;
+			const result = [];
+
+			for (let line of lines) {
+				if (/^(end|until|else|elseif\b)/.test(line)) {
+					indent = Math.max(0, indent - 1);
+				}
+
+				result.push("\t".repeat(indent) + line);
+
+				if (/\b(function|then|do|repeat)\b/.test(line) && !/\bend\b/.test(line)) {
+					if (!/^elseif\b/.test(line)) {
+						indent++;
+					}
+				}
+
+				if (/^(else|elseif\b)/.test(line)) {
+					indent++;
+				}
+			}
+
+			output.value = result.join("\n");
+			setMessages([{ type: "ok", text: "Beautified formatting." }]);
+			updateStats();
+		}
+
+		function copyOutput() {
+			if (!output.value.trim()) {
+				setMessages([{ type: "warn", text: "No output to copy." }]);
+				return;
+			}
+
+			output.select();
+			document.execCommand("copy");
+			setMessages([{ type: "ok", text: "Output copied." }]);
+		}
+
+		function clearAll() {
+			input.value = "";
+			output.value = "";
+			setMessages([{ type: "warn", text: "Cleared. Paste Lua code to begin." }]);
+			updateStats();
+		}
+
+		updateStats();
+	</script>
+</body>
+</html>
