@@ -1,4 +1,4 @@
-const APP_VERSION = "v1.3";
+const APP_VERSION = "v1.4";
 const APP_NAME = "Traceless";
 const WATERMARK_TEXT = "Obfuscated by Traceless";
 
@@ -242,8 +242,15 @@ function replaceIdentifierOutsideStrings(code, oldName, newName) {
 
 		const before = code[i - 1] || "";
 		const after = code[i + oldName.length] || "";
+
 		const isBoundaryBefore = !/[A-Za-z0-9_]/.test(before);
 		const isBoundaryAfter = !/[A-Za-z0-9_]/.test(after);
+
+		if (before === "." || before === ":") {
+			result += char;
+			i++;
+			continue;
+		}
 
 		if (
 			code.slice(i, i + oldName.length) === oldName &&
@@ -559,17 +566,15 @@ end`
 }
 
 function makeWatermarkGuard() {
-	const wmVar = randomName();
+	const wmVar = "TRC_" + randomName(10);
 	const wmCheckVar = randomName();
 	const wmText = WATERMARK_TEXT;
-
 	const wmEncoded = makeHiddenStringExpression(wmText);
 
-	const lua = `--[[ ${wmText} ]]
-local ${wmVar}=${wmEncoded}
+	const lua = `local ${wmVar}=${wmEncoded} --[[ ${wmText} ]]
 local ${wmCheckVar}=#${wmVar}
 if ${wmVar}~=${wmEncoded} or ${wmCheckVar}~=${wmText.length} then
-	error(${makeHiddenStringExpression("Traceless watermark removed")})
+	error(${makeHiddenStringExpression("Traceless watermark missing or modified")})
 end`;
 
 	return {
@@ -812,7 +817,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Traceless obfuscation generated. Watermark guard added. Removing it will break the loader.");
+	msg("Traceless obfuscation generated. v1.4 fixed property renaming and added active watermark guard.");
 }
 
 function copyOutput() {
