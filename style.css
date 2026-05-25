@@ -38,12 +38,29 @@ p {
 	margin-top: 5px;
 }
 
+.header-badges {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
 .badge {
 	background: #11111b;
 	color: #bfc2ff;
 	padding: 9px 13px;
 	border-radius: 999px;
 	font-size: 13px;
+}
+
+.version-badge {
+	background: linear-gradient(135deg, #5865f2, #7b4dff);
+	color: white;
+	padding: 9px 13px;
+	border-radius: 999px;
+	font-size: 13px;
+	font-weight: bold;
+	box-shadow: 0 0 18px rgba(88, 101, 242, 0.25);
 }
 
 .settings {
