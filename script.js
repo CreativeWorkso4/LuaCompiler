@@ -15,7 +15,7 @@ function randomInt(min, max) {
 	return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function randomName(length = randomInt(5, 11)) {
+function randomName(length = randomInt(6, 14)) {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
 	let result = chars[randomInt(0, chars.length - 1)];
 
@@ -37,6 +37,12 @@ function randomTinyName() {
 	return result;
 }
 
+function normalizeLuaInput(code) {
+	return code
+		.replace(/[“”]/g, '"')
+		.replace(/[‘’]/g, "'");
+}
+
 function shuffleArray(array) {
 	const copy = array.slice();
 
@@ -48,15 +54,42 @@ function shuffleArray(array) {
 	return copy;
 }
 
+function stringToBytes(str) {
+	const bytes = [];
+
+	for (let i = 0; i < str.length; i++) {
+		bytes.push(str.charCodeAt(i));
+	}
+
+	return bytes;
+}
+
 function removeComments(code) {
+	code = normalizeLuaInput(code);
+
 	let result = "";
 	let i = 0;
 	let inString = false;
 	let quote = "";
+	let inLongString = false;
 
 	while (i < code.length) {
 		const char = code[i];
 		const next = code[i + 1];
+
+		if (inLongString) {
+			result += char;
+
+			if (char === "]" && next === "]") {
+				result += next;
+				i += 2;
+				inLongString = false;
+				continue;
+			}
+
+			i++;
+			continue;
+		}
 
 		if (inString) {
 			result += char;
@@ -76,6 +109,13 @@ function removeComments(code) {
 			continue;
 		}
 
+		if (char === "[" && next === "[") {
+			inLongString = true;
+			result += char + next;
+			i += 2;
+			continue;
+		}
+
 		if (char === '"' || char === "'") {
 			inString = true;
 			quote = char;
@@ -85,9 +125,21 @@ function removeComments(code) {
 		}
 
 		if (char === "-" && next === "-") {
+			if (code[i + 2] === "[" && code[i + 3] === "[") {
+				i += 4;
+
+				while (i < code.length && !(code[i] === "]" && code[i + 1] === "]")) {
+					i++;
+				}
+
+				i += 2;
+				continue;
+			}
+
 			while (i < code.length && code[i] !== "\n") {
 				i++;
 			}
+
 			continue;
 		}
 
@@ -99,6 +151,8 @@ function removeComments(code) {
 }
 
 function minify(code) {
+	code = normalizeLuaInput(code);
+
 	return removeComments(code)
 		.split(/\r?\n/)
 		.map(line => line.trim())
@@ -119,19 +173,103 @@ function minifyOnly() {
 	msg("Minified successfully.");
 }
 
+function replaceIdentifierOutsideStrings(code, oldName, newName) {
+	let result = "";
+	let i = 0;
+	let inString = false;
+	let quote = "";
+	let inLongString = false;
+
+	while (i < code.length) {
+		const char = code[i];
+		const next = code[i + 1];
+
+		if (inLongString) {
+			result += char;
+
+			if (char === "]" && next === "]") {
+				result += next;
+				i += 2;
+				inLongString = false;
+				continue;
+			}
+
+			i++;
+			continue;
+		}
+
+		if (inString) {
+			result += char;
+
+			if (char === "\\" && i + 1 < code.length) {
+				result += code[i + 1];
+				i += 2;
+				continue;
+			}
+
+			if (char === quote) {
+				inString = false;
+				quote = "";
+			}
+
+			i++;
+			continue;
+		}
+
+		if (char === "[" && next === "[") {
+			inLongString = true;
+			result += char + next;
+			i += 2;
+			continue;
+		}
+
+		if (char === '"' || char === "'") {
+			inString = true;
+			quote = char;
+			result += char;
+			i++;
+			continue;
+		}
+
+		const before = code[i - 1] || "";
+		const after = code[i + oldName.length] || "";
+		const isBoundaryBefore = !/[A-Za-z0-9_]/.test(before);
+		const isBoundaryAfter = !/[A-Za-z0-9_]/.test(after);
+
+		if (
+			code.slice(i, i + oldName.length) === oldName &&
+			isBoundaryBefore &&
+			isBoundaryAfter
+		) {
+			result += newName;
+			i += oldName.length;
+			continue;
+		}
+
+		result += char;
+		i++;
+	}
+
+	return result;
+}
+
 function renameLocalVariables(code) {
 	const reserved = new Set([
 		"and", "break", "do", "else", "elseif", "end", "false", "for", "function",
 		"if", "in", "local", "nil", "not", "or", "repeat", "return", "then", "true",
 		"until", "while", "print", "string", "math", "table", "game", "workspace",
 		"script", "pairs", "ipairs", "next", "load", "loadstring", "require", "pcall",
-		"xpcall", "error", "type", "typeof", "task", "wait", "Vector3", "CFrame"
+		"xpcall", "error", "type", "typeof", "task", "wait", "Vector3", "CFrame",
+		"Instance", "Color3", "UDim2", "UDim", "Enum", "BrickColor", "_G", "_ENV",
+		"getfenv", "setfenv", "select", "tonumber", "tostring", "newproxy"
 	]);
 
 	const map = {};
 
 	const patterns = [
 		/\blocal\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+		/\blocal\s+function\s+([A-Za-z_][A-Za-z0-9_]*)/g,
+		/\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(/g,
 		/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/g,
 		/\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s*,/g
 	];
@@ -154,15 +292,56 @@ function renameLocalVariables(code) {
 		}
 	}
 
-	for (const [oldName, newName] of Object.entries(map)) {
-		const re = new RegExp(`\\b${oldName}\\b`, "g");
-		code = code.replace(re, newName);
+	const entries = Object.entries(map).sort((a, b) => b[0].length - a[0].length);
+
+	for (const [oldName, newName] of entries) {
+		code = replaceIdentifierOutsideStrings(code, oldName, newName);
 	}
 
 	return code;
 }
 
+function makeLuaByteExpression(byte) {
+	const style = randomInt(1, 6);
+
+	if (style === 1) {
+		const k = randomInt(5, 80);
+		return `(${byte + k}-${k})`;
+	}
+
+	if (style === 2) {
+		const a = randomInt(1, Math.max(1, byte - 1));
+		return `(${a}+${byte - a})`;
+	}
+
+	if (style === 3) {
+		const k = randomInt(2, 20);
+		return `((${byte * k})/${k})`;
+	}
+
+	if (style === 4) {
+		const k = randomInt(3, 50);
+		return `(${byte - k}+${k})`;
+	}
+
+	if (style === 5) {
+		const a = randomInt(1, 9);
+		return `(${byte}+${a}-${a})`;
+	}
+
+	const k = randomInt(10, 90);
+	return `(${byte + k}-${randomInt(1, 5)}-${k - randomInt(1, 5)})`;
+}
+
+function makeHiddenStringExpression(text) {
+	const bytes = stringToBytes(text);
+	const parts = bytes.map(byte => `string.char(${makeLuaByteExpression(byte)})`);
+	return `(${parts.join("..")})`;
+}
+
 function encodeStrings(code) {
+	code = normalizeLuaInput(code);
+
 	return code.replace(/(["'])(?:(?=(\\?))\2.)*?\1/g, function(match) {
 		const raw = match.slice(1, -1);
 
@@ -170,47 +349,50 @@ function encodeStrings(code) {
 			return match;
 		}
 
-		const bytes = [];
-
-		for (let i = 0; i < raw.length; i++) {
-			const shift = randomInt(3, 30);
-			bytes.push({
-				value: raw.charCodeAt(i) + shift,
-				shift
-			});
-		}
-
-		const piece = bytes
-			.map(item => `string.char(${item.value}-${item.shift})`)
-			.join("..");
-
-		return `(${piece})`;
+		return makeHiddenStringExpression(raw);
 	});
 }
 
-function stringToBytes(str) {
-	const bytes = [];
+function encodeLiteralToLuaExpression(text) {
+	const keys = [];
 
-	for (let i = 0; i < str.length; i++) {
-		bytes.push(str.charCodeAt(i));
+	for (let i = 0; i < randomInt(3, 6); i++) {
+		keys.push(randomInt(15, 80));
 	}
 
-	return bytes;
-}
+	const data = stringToBytes(text).map((byte, index) => {
+		const key = keys[index % keys.length];
+		const mode = index % 3;
 
-function encodeLiteralToLuaExpression(text) {
-	const key = randomInt(15, 80);
-	const data = stringToBytes(text).map(byte => byte + key);
+		if (mode === 0) return byte + key;
+		if (mode === 1) return byte + key + 4;
+		return byte + key + 9;
+	});
+
 	const dataVar = randomName();
+	const keyVar = randomName();
 	const outVar = randomName();
 	const iVar = randomName();
 	const vVar = randomName();
+	const kVar = randomName();
+	const mVar = randomName();
+	const cVar = randomName();
 
 	return `(function()
 local ${dataVar}={${data.join(",")}}
+local ${keyVar}={${keys.join(",")}}
 local ${outVar}={}
 for ${iVar},${vVar} in ipairs(${dataVar}) do
-	${outVar}[${iVar}]=_G[string.char(115,116,114,105,110,103)][string.char(99,104,97,114)](${vVar}-${key})
+	local ${kVar}=${keyVar}[((${iVar}-1)%#${keyVar})+1]
+	local ${mVar}=(${iVar}-1)%3
+	if ${mVar}==0 then
+		${cVar}=${vVar}-${kVar}
+	elseif ${mVar}==1 then
+		${cVar}=${vVar}-${kVar}-4
+	else
+		${cVar}=${vVar}-${kVar}-9
+	end
+	${outVar}[${iVar}]=_G[string.char(115,116,114,105,110,103)][string.char(99,104,97,114)](${cVar})
 end
 return _G[string.char(116,97,98,108,101)][string.char(99,111,110,99,97,116)](${outVar})
 end)()`;
@@ -233,7 +415,10 @@ function makeFakeErrorCode(level) {
 		"bytecode mismatch",
 		"tamper detected",
 		"checksum failed",
-		"environment blocked"
+		"environment blocked",
+		"service locked",
+		"invalid constant pool",
+		"bad proto signature"
 	];
 
 	for (let i = 0; i < amount; i++) {
@@ -241,7 +426,7 @@ function makeFakeErrorCode(level) {
 		const fake = fakeErrors[randomInt(0, fakeErrors.length - 1)];
 		const fakeExpr = encodeLiteralToLuaExpression(fake);
 
-		const style = randomInt(1, 4);
+		const style = randomInt(1, 5);
 
 		if (style === 1) {
 			lines.push(`local ${flag}=false;if ${flag} then error(${fakeExpr}) end`);
@@ -249,8 +434,10 @@ function makeFakeErrorCode(level) {
 			lines.push(`pcall(function() if false then error(${fakeExpr}) end end)`);
 		} else if (style === 3) {
 			lines.push(`local ${flag}=0;if ${flag}>999999 then error(${fakeExpr}) end`);
-		} else {
+		} else if (style === 4) {
 			lines.push(`do local ${flag}=nil;if ${flag}~=nil then error(${fakeExpr}) end end`);
+		} else {
+			lines.push(`xpcall(function() if 1==2 then error(${fakeExpr}) end end,function() return nil end)`);
 		}
 	}
 
@@ -273,7 +460,7 @@ function makeJunkCode(level) {
 		const n1 = randomInt(1000, 999999);
 		const n2 = randomInt(1000, 999999);
 
-		const style = randomInt(1, 7);
+		const style = randomInt(1, 9);
 
 		if (style === 1) {
 			junk.push(`local ${a}=${n1}`);
@@ -284,11 +471,15 @@ function makeJunkCode(level) {
 		} else if (style === 4) {
 			junk.push(`local ${a}={};local ${b}=${a};${b}[${randomInt(1, 9)}]=${n1}`);
 		} else if (style === 5) {
-			junk.push(`do local ${a}=string.char(${randomInt(65, 90)},${randomInt(65, 90)},${randomInt(65, 90)});local ${b}=#${a} end`);
+			junk.push(`do local ${a}=${makeHiddenStringExpression(randomName(4))};local ${b}=#${a} end`);
 		} else if (style === 6) {
 			junk.push(`local ${a}=function() return ${n1} end;local ${b}=${a}()`);
-		} else {
+		} else if (style === 7) {
 			junk.push(`local ${a},${b},${c}=${n1},${n2},false;if ${c} then ${d}=${a}+${b} end`);
+		} else if (style === 8) {
+			junk.push(`do local ${a}={${randomInt(1, 9)},${randomInt(10, 99)},${randomInt(100, 999)}};local ${b}=0;for _,${c} in ipairs(${a}) do ${b}=${b}+${c} end end`);
+		} else {
+			junk.push(`local ${a}=pcall(function() return ${n1}+${n2} end)`);
 		}
 	}
 
@@ -303,7 +494,7 @@ function encodeBytesAdvanced(str, keys) {
 	for (let i = 0; i < str.length; i++) {
 		const charCode = str.charCodeAt(i);
 		const key = keys[i % keys.length];
-		const mode = i % 4;
+		const mode = i % 5;
 
 		if (mode === 0) {
 			encoded.push(charCode + key);
@@ -311,8 +502,10 @@ function encodeBytesAdvanced(str, keys) {
 			encoded.push(charCode + key + 3);
 		} else if (mode === 2) {
 			encoded.push(charCode + key + 7);
-		} else {
+		} else if (mode === 3) {
 			encoded.push(charCode + key + 11);
+		} else {
+			encoded.push(charCode + key + 17);
 		}
 	}
 
@@ -330,11 +523,6 @@ function chunkArray(array, minSize = 18, maxSize = 34) {
 	}
 
 	return chunks;
-}
-
-function makeEscapedGlobalAccess(name) {
-	const bytes = stringToBytes(name);
-	return `_G[string.char(${bytes.join(",")})]`;
 }
 
 function makeHiddenFunctionGetter() {
@@ -363,14 +551,18 @@ end`
 function makeAdvancedLoader(source, level) {
 	const keys = [];
 
-	for (let i = 0; i < randomInt(5, 9); i++) {
-		keys.push(randomInt(20, 140));
+	for (let i = 0; i < randomInt(6, 11); i++) {
+		keys.push(randomInt(20, 160));
 	}
 
 	const encoded = encodeBytesAdvanced(source, keys);
 	const chunks = chunkArray(encoded);
-	const shuffledIndexes = chunks.map((_, index) => index);
-	const fakeChunkCount = level === "high" ? randomInt(4, 8) : level === "medium" ? randomInt(2, 4) : randomInt(1, 2);
+
+	const fakeChunkCount = level === "high"
+		? randomInt(6, 12)
+		: level === "medium"
+			? randomInt(3, 6)
+			: randomInt(1, 3);
 
 	const allChunkObjects = chunks.map((chunk, index) => ({
 		real: true,
@@ -383,7 +575,7 @@ function makeAdvancedLoader(source, level) {
 		const fake = [];
 
 		for (let j = 0; j < fakeLength; j++) {
-			fake.push(randomInt(30, 300));
+			fake.push(randomInt(30, 360));
 		}
 
 		allChunkObjects.push({
@@ -444,15 +636,17 @@ for ${iVar}=1,#${orderVar} do
 	for ${jVar}=1,#${chunkVar} do
 		local ${bVar}=${chunkVar}[${jVar}]
 		local ${kVar}=${keyVar}[((#${buildVar})%#${keyVar})+1]
-		local ${modeVar}=#${buildVar}%4
+		local ${modeVar}=#${buildVar}%5
 		if ${modeVar}==0 then
 			${charVar}=${bVar}-${kVar}
 		elseif ${modeVar}==1 then
 			${charVar}=${bVar}-${kVar}-3
 		elseif ${modeVar}==2 then
 			${charVar}=${bVar}-${kVar}-7
-		else
+		elseif ${modeVar}==3 then
 			${charVar}=${bVar}-${kVar}-11
+		else
+			${charVar}=${bVar}-${kVar}-17
 		end
 		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar})
 	end
@@ -487,7 +681,7 @@ function makeChunkedStringChar(source, level) {
 
 	for (const chunk of chunks) {
 		const inner = chunk.bytes
-			.map(pair => `string.char(${pair[0]}-${pair[1]})`)
+			.map(pair => `string.char(${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})`)
 			.join("..");
 
 		lua += `local ${chunk.name}=${inner}\n`;
@@ -506,10 +700,12 @@ function makeChunkedStringChar(source, level) {
 }
 
 function basicSyntaxCheck(code) {
+	code = normalizeLuaInput(code);
+
 	const openers = (code.match(/\b(function|then|do)\b/g) || []).length;
 	const ends = (code.match(/\bend\b/g) || []).length;
 
-	if (ends > openers + 5) {
+	if (ends > openers + 8) {
 		return "Possible extra 'end' detected.";
 	}
 
@@ -538,7 +734,7 @@ function basicSyntaxCheck(code) {
 }
 
 function obfuscateLua() {
-	const code = input.value;
+	const code = normalizeLuaInput(input.value);
 
 	if (!code.trim()) {
 		msg("No Lua code to obfuscate.", false);
@@ -581,7 +777,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Advanced obfuscation generated. It is harder to casually decode, but no client-side Lua obfuscation is impossible to reverse.");
+	msg("Advanced obfuscation generated. Strings are hidden harder, and variable renaming no longer changes service names inside quotes.");
 }
 
 function copyOutput() {
