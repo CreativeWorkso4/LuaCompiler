@@ -1,6 +1,13 @@
+const APP_VERSION = "v1.1";
+
 const input = document.getElementById("input");
 const output = document.getElementById("output");
 const messages = document.getElementById("messages");
+
+const versionBadge = document.getElementById("versionBadge");
+if (versionBadge) {
+	versionBadge.textContent = APP_VERSION;
+}
 
 function msg(text, good = true) {
 	messages.textContent = text;
