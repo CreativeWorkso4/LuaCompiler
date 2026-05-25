@@ -1,197 +1,61 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Night Lua Toolkit</title>
-
-  <!-- Fonts: Oxanium (UI headings), JetBrains Mono (code areas) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;600;700;800&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" />
-
-  <link rel="stylesheet" href="style.css" />
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Night Lua Obfuscator</title>
+	<link rel="stylesheet" href="style.css" />
 </head>
 <body>
+	<div class="app">
+		<header>
+			<div>
+				<h1>Night Lua Obfuscator</h1>
+				<p>Advanced browser Lua obfuscator with configurable settings.</p>
+			</div>
+			<span class="badge">GitHub Pages Ready</span>
+		</header>
 
-  <!-- ====== HEADER ====== -->
-  <header class="site-header">
-    <div class="header-inner">
-      <div class="logo">
-        <span class="logo-moon">🌙</span>
-        <span class="logo-text">Night Lua <span class="logo-accent">Toolkit</span></span>
-      </div>
-      <div class="header-badges">
-        <span class="badge badge-pages">⚡ GitHub Pages Ready</span>
-        <span class="badge badge-browser">🔒 Browser Only</span>
-        <span class="badge badge-free">✨ No Backend</span>
-      </div>
-    </div>
-  </header>
+		<section class="settings">
+			<label><input type="checkbox" id="renameVars" checked /> Rename local variables</label>
+			<label><input type="checkbox" id="encodeStrings" checked /> Encode strings</label>
+			<label><input type="checkbox" id="byteEncode" checked /> Byte encode final output</label>
+			<label><input type="checkbox" id="junkCode" checked /> Add junk code</label>
 
-  <!-- ====== MAIN CONTENT ====== -->
-  <main class="main-content">
+			<label>
+				Junk intensity
+				<select id="junkIntensity">
+					<option value="low">Low</option>
+					<option value="medium" selected>Medium</option>
+					<option value="high">High</option>
+				</select>
+			</label>
+		</section>
 
-    <!-- TOOLBAR -->
-    <div class="toolbar" role="toolbar" aria-label="Lua tools">
-      <button class="btn btn-check"     onclick="checkSyntax()"   title="Analyse for errors and risky patterns">
-        <span class="btn-icon">🔍</span><span class="btn-label">Check Errors</span>
-      </button>
-      <button class="btn btn-beautify"  onclick="beautifyLua()"   title="Auto-indent and format">
-        <span class="btn-icon">✨</span><span class="btn-label">Beautify</span>
-      </button>
-      <button class="btn btn-minify"    onclick="minifyLua()"     title="Strip comments and collapse whitespace">
-        <span class="btn-icon">⚡</span><span class="btn-label">Minify</span>
-      </button>
-      <button class="btn btn-obfuscate" onclick="obfuscateLua()"  title="Advanced multi-layer obfuscation">
-        <span class="btn-icon">🔐</span><span class="btn-label">Obfuscate</span>
-      </button>
-      <button class="btn btn-loadstr"   onclick="makeLoadstring()" title="Wrap in byte-array loadstring">
-        <span class="btn-icon">📦</span><span class="btn-label">Make Loadstring</span>
-      </button>
-      <span class="btn-divider" aria-hidden="true"></span>
-      <button class="btn btn-copy"  onclick="copyOutput()"  title="Copy output to clipboard">
-        <span class="btn-icon">📋</span><span class="btn-label">Copy Output</span>
-      </button>
-      <button class="btn btn-clear" onclick="clearAll()"    title="Clear all panels">
-        <span class="btn-icon">🗑</span><span class="btn-label">Clear</span>
-      </button>
-    </div>
+		<div class="toolbar">
+			<button onclick="obfuscateLua()">Obfuscate</button>
+			<button onclick="minifyOnly()">Minify Only</button>
+			<button onclick="copyOutput()">Copy Output</button>
+			<button class="danger" onclick="clearAll()">Clear</button>
+		</div>
 
-    <!-- WORKSPACE: two columns on desktop, stacked on mobile -->
-    <div class="workspace">
+		<main class="grid">
+			<section class="panel">
+				<div class="panel-title">Input Lua</div>
+				<textarea id="input" placeholder="Paste Lua here..."></textarea>
+			</section>
 
-      <!-- ---- INPUT PANEL ---- -->
-      <div class="panel" id="panel-input">
-        <div class="panel-header">
-          <span class="panel-title">Lua Input</span>
-          <span class="panel-hint">Paste or type your Lua code</span>
-        </div>
-        <textarea
-          id="input"
-          class="code-area"
-          placeholder="-- Paste your Lua code here...&#10;&#10;local function greet(name)&#10;    print(&quot;Hello, &quot; .. name)&#10;end&#10;&#10;greet(&quot;World&quot;)"
-          spellcheck="false"
-          autocorrect="off"
-          autocapitalize="off"
-          autocomplete="off"
-        ></textarea>
-        <div class="panel-footer">
-          <div class="stats-row">
-            <span class="stat" title="Line count">📄 Lines <strong id="stat-lines">0</strong></span>
-            <span class="stat" title="Character count">© Chars <strong id="stat-chars">0</strong></span>
-            <span class="stat" title="Rough GPT-4 token estimate">🪙 Tokens <strong id="stat-tokens">~0</strong></span>
-          </div>
-        </div>
-      </div>
+			<section class="panel">
+				<div class="panel-title">Output</div>
+				<textarea id="output" readonly placeholder="Obfuscated code appears here..."></textarea>
+			</section>
+		</main>
 
-      <!-- ---- OUTPUT + STATUS PANEL ---- -->
-      <div class="panel" id="panel-output">
-        <div class="panel-header">
-          <span class="panel-title">Output</span>
-          <span class="panel-hint" id="output-hint">Result appears here</span>
-        </div>
-        <textarea
-          id="output"
-          class="code-area"
-          placeholder="-- Output will appear here after using a tool above..."
-          readonly
-          spellcheck="false"
-        ></textarea>
+		<section class="messages" id="messages">
+			Ready.
+		</section>
+	</div>
 
-        <!-- STATUS / DIAGNOSTICS -->
-        <div id="error-panel" class="error-panel">
-          <div class="error-header">
-            <span class="error-title">Status &amp; Diagnostics</span>
-            <span id="error-count" class="error-count"></span>
-          </div>
-          <div id="error-body" class="error-body">
-            <div class="msg info">
-              <span class="msg-icon">ℹ</span>
-              <span>Use <em>Check Errors</em> to analyse your code, or run any tool above.</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </div><!-- /.workspace -->
-
-    <!-- OBFUSCATION SETTINGS PANEL -->
-    <details class="settings-panel" id="obf-settings">
-      <summary class="settings-toggle">
-        🔧 <span>Obfuscation Settings</span>
-        <span class="settings-hint">click to expand</span>
-        <span class="toggle-arrow" aria-hidden="true">▾</span>
-      </summary>
-      <div class="settings-body">
-        <div class="settings-grid">
-
-          <label class="setting-item" for="opt-rename">
-            <input type="checkbox" id="opt-rename" checked />
-            <span class="checkmark" aria-hidden="true"></span>
-            <span class="setting-label">
-              <strong>Rename Variables</strong>
-              <small>Replace locals &amp; params with random identifiers</small>
-            </span>
-          </label>
-
-          <label class="setting-item" for="opt-strings">
-            <input type="checkbox" id="opt-strings" checked />
-            <span class="checkmark" aria-hidden="true"></span>
-            <span class="setting-label">
-              <strong>Encode Strings</strong>
-              <small>Convert string literals to <code>string.char(…)</code></small>
-            </span>
-          </label>
-
-          <label class="setting-item" for="opt-junk">
-            <input type="checkbox" id="opt-junk" checked />
-            <span class="checkmark" aria-hidden="true"></span>
-            <span class="setting-label">
-              <strong>Inject Junk Code</strong>
-              <small>Dead variables, fake functions &amp; unreachable blocks</small>
-            </span>
-          </label>
-
-          <label class="setting-item" for="opt-bytes">
-            <input type="checkbox" id="opt-bytes" checked />
-            <span class="checkmark" aria-hidden="true"></span>
-            <span class="setting-label">
-              <strong>Byte-Encode Final Output</strong>
-              <small>Encode result as byte array, run with <code>load()</code></small>
-            </span>
-          </label>
-
-          <div class="setting-item setting-select">
-            <span class="setting-label">
-              <strong>Junk Intensity</strong>
-              <small>Controls volume of inserted junk code</small>
-            </span>
-            <select id="opt-junk-level" class="select-input" aria-label="Junk intensity">
-              <option value="low">Low</option>
-              <option value="medium" selected>Medium</option>
-              <option value="high">High</option>
-            </select>
-          </div>
-
-        </div>
-      </div>
-    </details>
-
-    <!-- DISCLAIMER -->
-    <div class="disclaimer" role="note">
-      ⚠️ <strong>Browser-only checker.</strong>
-      This catches common Lua syntax issues, but it is <em>not</em> a full Lua VM/compiler yet.
-      Always test obfuscated output in your target Lua environment.
-    </div>
-
-  </main>
-
-  <!-- FOOTER -->
-  <footer class="site-footer">
-    <span>Night Lua Toolkit — 100% client-side · No data leaves your browser · Built for developers</span>
-  </footer>
-
-  <script src="script.js"></script>
+	<script src="script.js"></script>
 </body>
 </html>
