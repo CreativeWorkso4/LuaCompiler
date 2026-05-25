@@ -1,4 +1,6 @@
-const APP_VERSION = "v1.2";
+const APP_VERSION = "v1.3";
+const APP_NAME = "Traceless";
+const WATERMARK_TEXT = "Obfuscated by Traceless";
 
 const input = document.getElementById("input");
 const output = document.getElementById("output");
@@ -556,7 +558,29 @@ end`
 	};
 }
 
+function makeWatermarkGuard() {
+	const wmVar = randomName();
+	const wmCheckVar = randomName();
+	const wmText = WATERMARK_TEXT;
+
+	const wmEncoded = makeHiddenStringExpression(wmText);
+
+	const lua = `--[[ ${wmText} ]]
+local ${wmVar}=${wmEncoded}
+local ${wmCheckVar}=#${wmVar}
+if ${wmVar}~=${wmEncoded} or ${wmCheckVar}~=${wmText.length} then
+	error(${makeHiddenStringExpression("Traceless watermark removed")})
+end`;
+
+	return {
+		code: lua,
+		varName: wmVar
+	};
+}
+
 function makeAdvancedLoader(source, level) {
+	const watermark = makeWatermarkGuard();
+
 	const keys = [];
 
 	for (let i = 0; i < randomInt(6, 11); i++) {
@@ -632,6 +656,7 @@ function makeAdvancedLoader(source, level) {
 	const loadBytes = stringToBytes("load").join(",");
 
 	return `
+${watermark.code}
 ${junkBefore}
 ${fakeErrors}
 ${hidden.code}
@@ -656,7 +681,7 @@ for ${iVar}=1,#${orderVar} do
 		else
 			${charVar}=${bVar}-${kVar}-17
 		end
-		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar})
+		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar}+(#${watermark.varName}-#${watermark.varName}))
 	end
 end
 ${junkAfter}
@@ -666,6 +691,8 @@ ${loaderVar}(${hidden.envVar}[string.char(${tableBytes})][string.char(${concatBy
 }
 
 function makeChunkedStringChar(source, level) {
+	const watermark = makeWatermarkGuard();
+
 	const chunks = [];
 	const chunkSize = randomInt(35, 60);
 
@@ -685,11 +712,11 @@ function makeChunkedStringChar(source, level) {
 	}
 
 	const finalPieces = [];
-	let lua = makeJunkCode(level) + "\n";
+	let lua = watermark.code + "\n" + makeJunkCode(level) + "\n";
 
 	for (const chunk of chunks) {
 		const inner = chunk.bytes
-			.map(pair => `string.char(${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})`)
+			.map(pair => `string.char((${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})+(#${watermark.varName}-#${watermark.varName}))`)
 			.join("..");
 
 		lua += `local ${chunk.name}=${inner}\n`;
@@ -785,7 +812,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Advanced obfuscation generated. v1.2 fixed corrupted service names and broken byte math.");
+	msg("Traceless obfuscation generated. Watermark guard added. Removing it will break the loader.");
 }
 
 function copyOutput() {
