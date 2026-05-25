@@ -1,4 +1,4 @@
-const APP_VERSION = "v1.5";
+const APP_VERSION = "v1.6";
 const APP_NAME = "Traceless";
 const WATERMARK_TEXT = "Obfuscated by Traceless";
 
@@ -246,7 +246,6 @@ function replaceIdentifierOutsideStrings(code, oldName, newName) {
 		const isBoundaryBefore = !/[A-Za-z0-9_]/.test(before);
 		const isBoundaryAfter = !/[A-Za-z0-9_]/.test(after);
 
-		// Do not rename Roblox properties/methods like plr.Character or obj:WaitForChild()
 		if (before === "." || before === ":") {
 			result += char;
 			i++;
@@ -566,29 +565,57 @@ end`
 	};
 }
 
+function getWatermarkSum() {
+	let expectedSum = 0;
+
+	for (let i = 0; i < WATERMARK_TEXT.length; i++) {
+		expectedSum += WATERMARK_TEXT.charCodeAt(i);
+	}
+
+	return expectedSum;
+}
+
 function makeWatermarkGuard() {
 	const wmKey = "TRC_" + randomName(12);
-	const wmCheckVar = randomName();
-	const wmText = WATERMARK_TEXT;
+	const wmLenVar = randomName();
+	const wmSumVar = randomName();
+	const wmExpectedLen = WATERMARK_TEXT.length;
+	const wmExpectedSum = getWatermarkSum();
 	const wmKeyExpression = `_G[${makeHiddenStringExpression(wmKey)}]`;
 
-	const lua = `([[${wmText}]]):gsub("(.+)",function(v)
+	const lua = `([[${WATERMARK_TEXT}]]):gsub("(.+)",function(v)
 	${wmKeyExpression}=v
 	return v
 end)
-local ${wmCheckVar}=#${wmKeyExpression}
-if ${wmKeyExpression}~=${makeHiddenStringExpression(wmText)} or ${wmCheckVar}~=${wmText.length} then
+
+local ${wmLenVar}=#${wmKeyExpression}
+local ${wmSumVar}=0
+
+for i=1,#${wmKeyExpression} do
+	${wmSumVar}=${wmSumVar}+string.byte(${wmKeyExpression},i)
+end
+
+if ${wmLenVar}~=${wmExpectedLen} or ${wmSumVar}~=${wmExpectedSum} then
 	error(${makeHiddenStringExpression("Traceless watermark missing or modified")})
 end`;
 
 	return {
 		code: lua,
-		varName: wmKeyExpression
+		varName: wmKeyExpression,
+		lenVar: wmLenVar,
+		sumVar: wmSumVar,
+		expectedLen: wmExpectedLen,
+		expectedSum: wmExpectedSum
 	};
+}
+
+function makeWatermarkDecodeOffset(watermark) {
+	return `((${watermark.lenVar}-${watermark.expectedLen})+(${watermark.sumVar}-${watermark.expectedSum}))`;
 }
 
 function makeAdvancedLoader(source, level) {
 	const watermark = makeWatermarkGuard();
+	const wmOffset = makeWatermarkDecodeOffset(watermark);
 
 	const keys = [];
 
@@ -690,7 +717,7 @@ for ${iVar}=1,#${orderVar} do
 		else
 			${charVar}=${bVar}-${kVar}-17
 		end
-		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar}+(#${watermark.varName}-#${watermark.varName}))
+		${buildVar}[#${buildVar}+1]=${hidden.envVar}[string.char(${stringBytes})][string.char(${charBytes})](${charVar}+${wmOffset})
 	end
 end
 ${junkAfter}
@@ -701,6 +728,7 @@ ${loaderVar}(${hidden.envVar}[string.char(${tableBytes})][string.char(${concatBy
 
 function makeChunkedStringChar(source, level) {
 	const watermark = makeWatermarkGuard();
+	const wmOffset = makeWatermarkDecodeOffset(watermark);
 
 	const chunks = [];
 	const chunkSize = randomInt(35, 60);
@@ -725,7 +753,7 @@ function makeChunkedStringChar(source, level) {
 
 	for (const chunk of chunks) {
 		const inner = chunk.bytes
-			.map(pair => `string.char((${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})+(#${watermark.varName}-#${watermark.varName}))`)
+			.map(pair => `string.char((${makeLuaByteExpression(pair[0])}-${makeLuaByteExpression(pair[1])})+${wmOffset})`)
 			.join("..");
 
 		lua += `local ${chunk.name}=${inner}\n`;
@@ -821,7 +849,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Traceless obfuscation generated. v1.5 starts with active ([[Obfuscated by Traceless]]) watermark.");
+	msg("Traceless obfuscation generated. v1.6 watermark now affects decode math.");
 }
 
 function copyOutput() {
