@@ -1,4 +1,4 @@
-const APP_VERSION = "v1.1";
+const APP_VERSION = "v1.2";
 
 const input = document.getElementById("input");
 const output = document.getElementById("output");
@@ -336,8 +336,9 @@ function makeLuaByteExpression(byte) {
 		return `(${byte}+${a}-${a})`;
 	}
 
-	const k = randomInt(10, 90);
-	return `(${byte + k}-${randomInt(1, 5)}-${k - randomInt(1, 5)})`;
+	const a = randomInt(1, 5);
+	const b = randomInt(1, 5);
+	return `(${byte}+${a}-${a}+${b}-${b})`;
 }
 
 function makeHiddenStringExpression(text) {
@@ -784,7 +785,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Advanced obfuscation generated. Strings are hidden harder, and variable renaming no longer changes service names inside quotes.");
+	msg("Advanced obfuscation generated. v1.2 fixed corrupted service names and broken byte math.");
 }
 
 function copyOutput() {
