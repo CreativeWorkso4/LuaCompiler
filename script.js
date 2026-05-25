@@ -1,4 +1,4 @@
-const APP_VERSION = "v1.4";
+const APP_VERSION = "v1.5";
 const APP_NAME = "Traceless";
 const WATERMARK_TEXT = "Obfuscated by Traceless";
 
@@ -246,6 +246,7 @@ function replaceIdentifierOutsideStrings(code, oldName, newName) {
 		const isBoundaryBefore = !/[A-Za-z0-9_]/.test(before);
 		const isBoundaryAfter = !/[A-Za-z0-9_]/.test(after);
 
+		// Do not rename Roblox properties/methods like plr.Character or obj:WaitForChild()
 		if (before === "." || before === ":") {
 			result += char;
 			i++;
@@ -566,20 +567,23 @@ end`
 }
 
 function makeWatermarkGuard() {
-	const wmVar = "TRC_" + randomName(10);
+	const wmKey = "TRC_" + randomName(12);
 	const wmCheckVar = randomName();
 	const wmText = WATERMARK_TEXT;
-	const wmEncoded = makeHiddenStringExpression(wmText);
+	const wmKeyExpression = `_G[${makeHiddenStringExpression(wmKey)}]`;
 
-	const lua = `local ${wmVar}=${wmEncoded} --[[ ${wmText} ]]
-local ${wmCheckVar}=#${wmVar}
-if ${wmVar}~=${wmEncoded} or ${wmCheckVar}~=${wmText.length} then
+	const lua = `([[${wmText}]]):gsub("(.+)",function(v)
+	${wmKeyExpression}=v
+	return v
+end)
+local ${wmCheckVar}=#${wmKeyExpression}
+if ${wmKeyExpression}~=${makeHiddenStringExpression(wmText)} or ${wmCheckVar}~=${wmText.length} then
 	error(${makeHiddenStringExpression("Traceless watermark missing or modified")})
 end`;
 
 	return {
 		code: lua,
-		varName: wmVar
+		varName: wmKeyExpression
 	};
 }
 
@@ -817,7 +821,7 @@ function obfuscateLua() {
 	}
 
 	output.value = result;
-	msg("Traceless obfuscation generated. v1.4 fixed property renaming and added active watermark guard.");
+	msg("Traceless obfuscation generated. v1.5 starts with active ([[Obfuscated by Traceless]]) watermark.");
 }
 
 function copyOutput() {
