@@ -1,8 +1,16 @@
+const APP_VERSION = "1.1";
+
 const codeInput = document.getElementById("codeInput");
 const highlighting = document.getElementById("highlighting");
 const diagnosticsBox = document.getElementById("diagnostics");
 const statusBox = document.getElementById("status");
-const checkBtn = document.getElementById("checkBtn");
+const versionTag = document.getElementById("versionTag");
+
+if (versionTag) {
+  versionTag.textContent = `v${APP_VERSION}`;
+}
+
+console.log(`Lua Compiler v${APP_VERSION} loaded`);
 
 const defaultCode = `local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -24,8 +32,8 @@ const robloxWords = new Set([
   "game", "workspace", "script", "Instance", "Vector3", "CFrame",
   "Color3", "UDim2", "Enum", "Players", "ReplicatedStorage",
   "ServerScriptService", "StarterGui", "StarterPlayer",
-  "RunService", "UserInputService", "TweenService",
-  "Debris", "Lighting", "Teams", "SoundService", "HttpService",
+  "RunService", "UserInputService", "TweenService", "Debris",
+  "Lighting", "Teams", "SoundService", "HttpService",
   "GetService", "WaitForChild", "FindFirstChild", "FindFirstChildOfClass",
   "FireServer", "InvokeServer", "FireClient", "InvokeClient",
   "Connect", "Destroy", "Clone", "Parent", "LocalPlayer",
@@ -39,6 +47,49 @@ function escapeHTML(text) {
     .replaceAll(">", "&gt;");
 }
 
+function stripStringsAndComments(line) {
+  let result = "";
+  let i = 0;
+
+  while (i < line.length) {
+    const char = line[i];
+
+    if (char === "-" && line[i + 1] === "-") {
+      break;
+    }
+
+    if (char === `"` || char === `'`) {
+      const quote = char;
+      result += " ";
+      i++;
+
+      while (i < line.length) {
+        result += " ";
+
+        if (line[i] === "\\" && i + 1 < line.length) {
+          result += " ";
+          i += 2;
+          continue;
+        }
+
+        if (line[i] === quote) {
+          i++;
+          break;
+        }
+
+        i++;
+      }
+
+      continue;
+    }
+
+    result += char;
+    i++;
+  }
+
+  return result;
+}
+
 function tokenizeLua(code) {
   const tokens = [];
   let i = 0;
@@ -47,7 +98,7 @@ function tokenizeLua(code) {
     const char = code[i];
 
     if (char === "-" && code[i + 1] === "-") {
-      let start = i;
+      const start = i;
       i += 2;
 
       while (i < code.length && code[i] !== "\n") {
@@ -124,7 +175,7 @@ function tokenizeLua(code) {
       continue;
     }
 
-    if ("=+-*/%<>~".includes(char)) {
+    if ("=+-*/%<>~.".includes(char)) {
       const twoCharOperator = code.slice(i, i + 2);
 
       if (["==", "~=", "<=", ">=", ".."].includes(twoCharOperator)) {
@@ -158,9 +209,7 @@ function tokenizeLua(code) {
 }
 
 function highlightLua(code) {
-  const tokens = tokenizeLua(code);
-
-  return tokens
+  return tokenizeLua(code)
     .map(token => {
       const value = escapeHTML(token.value);
 
@@ -183,7 +232,7 @@ function addIssue(issues, type, line, title, message, fix = "") {
   });
 }
 
-function lineHasWord(line, word) {
+function hasWord(line, word) {
   return new RegExp(`\\b${word}\\b`).test(line);
 }
 
@@ -199,10 +248,12 @@ function checkLua(code) {
   lines.forEach((line, i) => {
     const lineNumber = i + 1;
     const trimmed = line.trim();
+    const cleanLine = stripStringsAndComments(line);
+    const cleanTrimmed = cleanLine.trim();
 
     if (!trimmed || trimmed.startsWith("--")) return;
 
-    for (const char of line) {
+    for (const char of cleanLine) {
       if (char === "(") parenCount++;
       if (char === ")") parenCount--;
       if (char === "[") bracketCount++;
@@ -233,18 +284,18 @@ function checkLua(code) {
       );
     }
 
-    if (/\bgame:getservice\s*\(/i.test(line)) {
+    if (/\bgame:getservice\s*\(/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
         lineNumber,
-        "Incorrect Roblox method capitalization",
+        "Incorrect GetService capitalization",
         "Roblox Lua is case-sensitive. getservice should be GetService.",
         `Use game:GetService("Players")`
       );
     }
 
-    if (/\bgame\.GetService\s*\(/.test(line)) {
+    if (/\bgame\.GetService\s*\(/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -255,7 +306,7 @@ function checkLua(code) {
       );
     }
 
-    if (/\bgame:GetService\s*\(\s*players\s*\)/i.test(line)) {
+    if (/\bgame:GetService\s*\(\s*Players\s*\)/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -277,7 +328,7 @@ function checkLua(code) {
       );
     }
 
-    if (/\bwaitforchild\s*\(/i.test(line)) {
+    if (/\b:waitforchild\s*\(/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -288,7 +339,7 @@ function checkLua(code) {
       );
     }
 
-    if (/\bfindfirstchild\s*\(/i.test(line)) {
+    if (/\b:findfirstchild\s*\(/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -299,7 +350,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*if\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(line)) {
+    if (/^\s*if\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -310,7 +361,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*elseif\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(line)) {
+    if (/^\s*elseif\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -321,7 +372,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*while\s+.*(?<![<>=~])=(?![=]).*\s+do\b/.test(line)) {
+    if (/^\s*while\s+.*(?<![<>=~])=(?![=]).*\s+do\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -332,7 +383,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*if\b/.test(trimmed) && !lineHasWord(trimmed, "then")) {
+    if (/^\s*if\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -343,7 +394,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*elseif\b/.test(trimmed) && !lineHasWord(trimmed, "then")) {
+    if (/^\s*elseif\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -354,7 +405,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*while\b/.test(trimmed) && !lineHasWord(trimmed, "do")) {
+    if (/^\s*while\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -365,7 +416,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*for\b/.test(trimmed) && !lineHasWord(trimmed, "do")) {
+    if (/^\s*for\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -376,31 +427,31 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*function\b/.test(trimmed)) {
+    if (/^\s*function\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "function", line: lineNumber });
     }
 
-    if (/^\s*if\b/.test(trimmed)) {
+    if (/^\s*if\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "if", line: lineNumber });
     }
 
-    if (/^\s*for\b/.test(trimmed)) {
+    if (/^\s*for\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "for", line: lineNumber });
     }
 
-    if (/^\s*while\b/.test(trimmed)) {
+    if (/^\s*while\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "while", line: lineNumber });
     }
 
-    if (/^\s*do\b/.test(trimmed)) {
+    if (/^\s*do\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "do", line: lineNumber });
     }
 
-    if (/^\s*repeat\b/.test(trimmed)) {
+    if (/^\s*repeat\b/.test(cleanTrimmed)) {
       blockStack.push({ type: "repeat", line: lineNumber });
     }
 
-    if (/^\s*end\b/.test(trimmed)) {
+    if (/^\s*end\b/.test(cleanTrimmed)) {
       const last = blockStack.pop();
 
       if (!last) {
@@ -415,7 +466,7 @@ function checkLua(code) {
       }
     }
 
-    if (/^\s*until\b/.test(trimmed)) {
+    if (/^\s*until\b/.test(cleanTrimmed)) {
       const last = blockStack.pop();
 
       if (!last || last.type !== "repeat") {
@@ -430,7 +481,7 @@ function checkLua(code) {
       }
     }
 
-    if (/\bprint\s+[("']/.test(line)) {
+    if (/\bprint\s+[("']/.test(cleanLine)) {
       addIssue(
         issues,
         "warning",
@@ -441,7 +492,7 @@ function checkLua(code) {
       );
     }
 
-    if (/\blocal\s+\w+\s*$/.test(line)) {
+    if (/\blocal\s+\w+\s*$/.test(cleanLine)) {
       addIssue(
         issues,
         "warning",
@@ -565,7 +616,6 @@ function renderDiagnostics(issues) {
 
 function updateEditor() {
   const code = codeInput.value;
-
   highlighting.innerHTML = highlightLua(code) + "\n";
   renderDiagnostics(checkLua(code));
 }
@@ -593,7 +643,5 @@ codeInput.addEventListener("keydown", event => {
     updateEditor();
   }
 });
-
-checkBtn.addEventListener("click", updateEditor);
 
 updateEditor();
