@@ -1,48 +1,80 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Lua Compiler</title>
-  <link rel="stylesheet" href="style.css" />
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>Traceless VM</title>
+	<link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <main class="app">
-    <section class="hero">
-      <div>
-        <h1>Lua Compiler</h1>
-        <p>Live Lua syntax highlighting, Roblox Lua checks, and error detection.</p>
-      </div>
-    </section>
+	<div class="bg-glow bg-glow-one"></div>
+	<div class="bg-glow bg-glow-two"></div>
 
-    <section class="editor-shell">
-      <div class="editor-top">
-        <span class="dot red"></span>
-        <span class="dot yellow"></span>
-        <span class="dot green"></span>
-        <span class="file-name">main.lua</span>
-        <span id="versionTag" class="version-tag">v1.1</span>
-      </div>
+	<main class="app">
+		<section class="hero">
+			<div class="badge">Traceless VM Alpha</div>
+			<h1>Traceless</h1>
+			<p>
+				Experimental Lua VM obfuscation with no direct loadstring payload.
+				Paste supported Lua code and generate a VM-protected script.
+			</p>
+		</section>
 
-      <div class="editor-wrap">
-        <pre id="highlighting" aria-hidden="true"></pre>
-        <textarea
-          id="codeInput"
-          spellcheck="false"
-          autocomplete="off"
-          autocapitalize="off"
-          placeholder="Type your Lua code here..."
-        ></textarea>
-      </div>
-    </section>
+		<section class="panel">
+			<div class="top-row">
+				<div>
+					<h2>Lua Input</h2>
+					<p class="small">Supports simple locals, assignments, print, math, GetService, properties, and method calls.</p>
+				</div>
 
-    <section class="output">
-      <h2>Diagnostics</h2>
-      <div id="status" class="status good">No errors detected.</div>
-      <div id="diagnostics"></div>
-    </section>
-  </main>
+				<div class="actions">
+					<button onclick="loadExample()">Example</button>
+					<button onclick="clearAll()">Clear</button>
+				</div>
+			</div>
 
-  <script src="script.js"></script>
+			<textarea id="input" spellcheck="false" placeholder='local x = 5
+local y = x + 2
+print(y)'></textarea>
+
+			<div class="button-row">
+				<button class="primary" onclick="obfuscateVM()">VM Obfuscate</button>
+				<button onclick="copyOutput()">Copy Output</button>
+			</div>
+
+			<div id="message" class="message">Ready.</div>
+		</section>
+
+		<section class="panel">
+			<div class="top-row">
+				<div>
+					<h2>VM Output</h2>
+					<p class="small">Generated Lua runtime + encoded VM instructions.</p>
+				</div>
+			</div>
+
+			<textarea id="output" spellcheck="false" readonly placeholder="Your VM-protected Lua will appear here..."></textarea>
+		</section>
+
+		<section class="features">
+			<div class="feature-card">
+				<h3>No direct loadstring payload</h3>
+				<p>VM Mode runs encoded instructions through a runtime interpreter instead of rebuilding one obvious Lua source string.</p>
+			</div>
+
+			<div class="feature-card">
+				<h3>Encoded instructions</h3>
+				<p>Strings and identifiers are encoded inside VM bytecode-style tables.</p>
+			</div>
+
+			<div class="feature-card">
+				<h3>Roblox basics</h3>
+				<p>Supports basic Roblox access like game:GetService, properties, WaitForChild, and property setting.</p>
+			</div>
+		</section>
+	</main>
+
+	<script src="vm_obfuscator.js"></script>
+	<script src="script.js"></script>
 </body>
 </html>
