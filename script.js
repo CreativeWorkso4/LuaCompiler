@@ -1,4 +1,4 @@
-const APP_VERSION = "1.2";
+const APP_VERSION = "1.3";
 
 const codeInput = document.getElementById("codeInput");
 const highlighting = document.getElementById("highlighting");
@@ -13,9 +13,24 @@ if (versionTag) {
 const defaultCode = `local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
-if player then
-  print("Player found")
+local SPEED = 50
+local JUMP_POWER = 100
+
+local function applyStats(character)
+  local humanoid = character:WaitForChild("Humanoid")
+
+  humanoid.WalkSpeed = SPEED
+  humanoid.UseJumpPower = true
+  humanoid.JumpPower = JUMP_POWER
 end
+
+if player.Character then
+  applyStats(player.Character)
+end
+
+player.CharacterAdded:Connect(function(character)
+  applyStats(character)
+end)
 `;
 
 const luaKeywords = new Set([
@@ -33,7 +48,8 @@ const robloxWords = new Set([
   "GetService", "WaitForChild", "FindFirstChild", "FindFirstChildOfClass",
   "FireServer", "InvokeServer", "FireClient", "InvokeClient",
   "Connect", "Destroy", "Clone", "Parent", "LocalPlayer",
-  "Character", "Humanoid", "HumanoidRootPart", "Mouse", "Camera"
+  "Character", "Humanoid", "HumanoidRootPart", "Mouse", "Camera",
+  "WalkSpeed", "JumpPower", "UseJumpPower", "CharacterAdded"
 ]);
 
 function escapeHTML(text) {
@@ -234,7 +250,6 @@ function hasWord(line, word) {
 
 function checkGetService(line, lineNumber, issues) {
   const cleanLine = stripStringsAndComments(line);
-
   const getServiceCall = cleanLine.match(/\bgame\s*([:.])\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
 
   if (!getServiceCall) return;
@@ -267,9 +282,7 @@ function checkGetService(line, lineNumber, issues) {
   }
 
   if (symbol === ":" && method === "GetService") {
-    const realLine = line;
-
-    const missingQuotes = /\bgame\s*:\s*GetService\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(realLine);
+    const missingQuotes = /\bgame\s*:\s*GetService\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(line);
 
     if (missingQuotes) {
       addIssue(
@@ -283,7 +296,7 @@ function checkGetService(line, lineNumber, issues) {
       return;
     }
 
-    const lowercasePlayers = /\bgame\s*:\s*GetService\s*\(\s*["']players["']\s*\)/.test(realLine);
+    const lowercasePlayers = /\bgame\s*:\s*GetService\s*\(\s*["']players["']\s*\)/.test(line);
 
     if (lowercasePlayers) {
       addIssue(
@@ -293,6 +306,77 @@ function checkGetService(line, lineNumber, issues) {
         "Service name capitalization",
         "Roblox service names usually use PascalCase.",
         `Use game:GetService("Players")`
+      );
+    }
+  }
+}
+
+function countFunctionOpenings(cleanLine) {
+  const matches = cleanLine.match(/\bfunction\b/g);
+  return matches ? matches.length : 0;
+}
+
+function pushBlocksFromLine(cleanTrimmed, cleanLine, lineNumber, blockStack) {
+  const functionCount = countFunctionOpenings(cleanLine);
+
+  for (let i = 0; i < functionCount; i++) {
+    blockStack.push({ type: "function", line: lineNumber });
+  }
+
+  if (/^if\b/.test(cleanTrimmed)) {
+    blockStack.push({ type: "if", line: lineNumber });
+  }
+
+  if (/^for\b/.test(cleanTrimmed)) {
+    blockStack.push({ type: "for", line: lineNumber });
+  }
+
+  if (/^while\b/.test(cleanTrimmed)) {
+    blockStack.push({ type: "while", line: lineNumber });
+  }
+
+  if (/^do\b/.test(cleanTrimmed)) {
+    blockStack.push({ type: "do", line: lineNumber });
+  }
+
+  if (/^repeat\b/.test(cleanTrimmed)) {
+    blockStack.push({ type: "repeat", line: lineNumber });
+  }
+}
+
+function closeBlocksFromLine(cleanTrimmed, lineNumber, blockStack, issues) {
+  const endMatches = cleanTrimmed.match(/\bend\b/g);
+  const untilMatches = cleanTrimmed.match(/\buntil\b/g);
+
+  const endCount = endMatches ? endMatches.length : 0;
+  const untilCount = untilMatches ? untilMatches.length : 0;
+
+  for (let i = 0; i < endCount; i++) {
+    const last = blockStack.pop();
+
+    if (!last) {
+      addIssue(
+        issues,
+        "error",
+        lineNumber,
+        "Unexpected end",
+        "This end does not match any open block.",
+        "Remove it or add a matching if/function/for/while block."
+      );
+    }
+  }
+
+  for (let i = 0; i < untilCount; i++) {
+    const last = blockStack.pop();
+
+    if (!last || last.type !== "repeat") {
+      addIssue(
+        issues,
+        "error",
+        lineNumber,
+        "Unexpected until",
+        "until should close a repeat block.",
+        `Example: repeat ... until condition`
       );
     }
   }
@@ -403,7 +487,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*if\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
+    if (/^if\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -414,7 +498,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*elseif\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
+    if (/^elseif\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "then")) {
       addIssue(
         issues,
         "error",
@@ -425,7 +509,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*while\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
+    if (/^while\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -436,7 +520,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*for\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
+    if (/^for\b/.test(cleanTrimmed) && !hasWord(cleanTrimmed, "do")) {
       addIssue(
         issues,
         "error",
@@ -447,59 +531,8 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*function\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "function", line: lineNumber });
-    }
-
-    if (/^\s*if\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "if", line: lineNumber });
-    }
-
-    if (/^\s*for\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "for", line: lineNumber });
-    }
-
-    if (/^\s*while\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "while", line: lineNumber });
-    }
-
-    if (/^\s*do\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "do", line: lineNumber });
-    }
-
-    if (/^\s*repeat\b/.test(cleanTrimmed)) {
-      blockStack.push({ type: "repeat", line: lineNumber });
-    }
-
-    if (/^\s*end\b/.test(cleanTrimmed)) {
-      const last = blockStack.pop();
-
-      if (!last) {
-        addIssue(
-          issues,
-          "error",
-          lineNumber,
-          "Unexpected end",
-          "This end does not match any open block.",
-          "Remove it or add a matching if/function/for/while block."
-        );
-      }
-    }
-
-    if (/^\s*until\b/.test(cleanTrimmed)) {
-      const last = blockStack.pop();
-
-      if (!last || last.type !== "repeat") {
-        addIssue(
-          issues,
-          "error",
-          lineNumber,
-          "Unexpected until",
-          "until should close a repeat block.",
-          `Example: repeat ... until condition`
-        );
-      }
-    }
+    pushBlocksFromLine(cleanTrimmed, cleanLine, lineNumber, blockStack);
+    closeBlocksFromLine(cleanTrimmed, lineNumber, blockStack, issues);
 
     if (/\bprint\s+[("']/.test(cleanLine)) {
       addIssue(
@@ -604,7 +637,6 @@ function syncScroll() {
 }
 
 codeInput.addEventListener("input", updateEditor);
-
 codeInput.addEventListener("scroll", syncScroll);
 
 codeInput.addEventListener("keydown", event => {
