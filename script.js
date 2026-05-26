@@ -1,4 +1,4 @@
-const APP_VERSION = "1.1";
+const APP_VERSION = "1.2";
 
 const codeInput = document.getElementById("codeInput");
 const highlighting = document.getElementById("highlighting");
@@ -10,8 +10,6 @@ if (versionTag) {
   versionTag.textContent = `v${APP_VERSION}`;
 }
 
-console.log(`Lua Compiler v${APP_VERSION} loaded`);
-
 const defaultCode = `local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
@@ -19,8 +17,6 @@ if player then
   print("Player found")
 end
 `;
-
-codeInput.value = defaultCode;
 
 const luaKeywords = new Set([
   "and", "break", "do", "else", "elseif", "end", "false",
@@ -236,6 +232,72 @@ function hasWord(line, word) {
   return new RegExp(`\\b${word}\\b`).test(line);
 }
 
+function checkGetService(line, lineNumber, issues) {
+  const cleanLine = stripStringsAndComments(line);
+
+  const getServiceCall = cleanLine.match(/\bgame\s*([:.])\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+
+  if (!getServiceCall) return;
+
+  const symbol = getServiceCall[1];
+  const method = getServiceCall[2];
+
+  if (symbol === "." && method === "GetService") {
+    addIssue(
+      issues,
+      "error",
+      lineNumber,
+      "Wrong GetService call",
+      "GetService should be called with a colon, not a dot.",
+      `Use game:GetService("Players")`
+    );
+    return;
+  }
+
+  if (symbol === ":" && method !== "GetService") {
+    addIssue(
+      issues,
+      "error",
+      lineNumber,
+      "Incorrect GetService capitalization",
+      "Roblox Lua is case-sensitive. Use GetService exactly.",
+      `Use game:GetService("Players")`
+    );
+    return;
+  }
+
+  if (symbol === ":" && method === "GetService") {
+    const realLine = line;
+
+    const missingQuotes = /\bgame\s*:\s*GetService\s*\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/.test(realLine);
+
+    if (missingQuotes) {
+      addIssue(
+        issues,
+        "error",
+        lineNumber,
+        "Service name needs quotes",
+        "The service name inside GetService should be a string.",
+        `Use game:GetService("Players")`
+      );
+      return;
+    }
+
+    const lowercasePlayers = /\bgame\s*:\s*GetService\s*\(\s*["']players["']\s*\)/.test(realLine);
+
+    if (lowercasePlayers) {
+      addIssue(
+        issues,
+        "warning",
+        lineNumber,
+        "Service name capitalization",
+        "Roblox service names usually use PascalCase.",
+        `Use game:GetService("Players")`
+      );
+    }
+  }
+}
+
 function checkLua(code) {
   const issues = [];
   const lines = code.split("\n");
@@ -284,49 +346,7 @@ function checkLua(code) {
       );
     }
 
-    if (/\bgame:getservice\s*\(/.test(cleanLine)) {
-      addIssue(
-        issues,
-        "error",
-        lineNumber,
-        "Incorrect GetService capitalization",
-        "Roblox Lua is case-sensitive. getservice should be GetService.",
-        `Use game:GetService("Players")`
-      );
-    }
-
-    if (/\bgame\.GetService\s*\(/.test(cleanLine)) {
-      addIssue(
-        issues,
-        "error",
-        lineNumber,
-        "Wrong GetService call",
-        "GetService should be called with a colon, not a dot.",
-        `Use game:GetService("Players")`
-      );
-    }
-
-    if (/\bgame:GetService\s*\(\s*Players\s*\)/.test(cleanLine)) {
-      addIssue(
-        issues,
-        "error",
-        lineNumber,
-        "Service name needs quotes",
-        "Players must be a string inside GetService.",
-        `Use game:GetService("Players")`
-      );
-    }
-
-    if (/\bgame:GetService\s*\(\s*["']players["']\s*\)/.test(line)) {
-      addIssue(
-        issues,
-        "warning",
-        lineNumber,
-        "Service name capitalization",
-        "Roblox service names are usually PascalCase.",
-        `Use game:GetService("Players")`
-      );
-    }
+    checkGetService(line, lineNumber, issues);
 
     if (/\b:waitforchild\s*\(/.test(cleanLine)) {
       addIssue(
@@ -350,7 +370,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*if\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(cleanLine)) {
+    if (/^\s*if\s+.*[^<>=~]=(?![=]).*\s+then\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -361,7 +381,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*elseif\s+.*(?<![<>=~])=(?![=]).*\s+then\b/.test(cleanLine)) {
+    if (/^\s*elseif\s+.*[^<>=~]=(?![=]).*\s+then\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -372,7 +392,7 @@ function checkLua(code) {
       );
     }
 
-    if (/^\s*while\s+.*(?<![<>=~])=(?![=]).*\s+do\b/.test(cleanLine)) {
+    if (/^\s*while\s+.*[^<>=~]=(?![=]).*\s+do\b/.test(cleanLine)) {
       addIssue(
         issues,
         "error",
@@ -505,69 +525,27 @@ function checkLua(code) {
   });
 
   if (parenCount > 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Missing closing parenthesis",
-      "You opened more parentheses than you closed.",
-      "Add a )"
-    );
+    addIssue(issues, "error", lines.length, "Missing closing parenthesis", "You opened more parentheses than you closed.", "Add a )");
   }
 
   if (parenCount < 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Extra closing parenthesis",
-      "You closed more parentheses than you opened.",
-      "Remove an extra )"
-    );
+    addIssue(issues, "error", lines.length, "Extra closing parenthesis", "You closed more parentheses than you opened.", "Remove an extra )");
   }
 
   if (bracketCount > 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Missing closing bracket",
-      "You opened more brackets than you closed.",
-      "Add a ]"
-    );
+    addIssue(issues, "error", lines.length, "Missing closing bracket", "You opened more brackets than you closed.", "Add a ]");
   }
 
   if (bracketCount < 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Extra closing bracket",
-      "You closed more brackets than you opened.",
-      "Remove an extra ]"
-    );
+    addIssue(issues, "error", lines.length, "Extra closing bracket", "You closed more brackets than you opened.", "Remove an extra ]");
   }
 
   if (braceCount > 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Missing closing brace",
-      "You opened more table braces than you closed.",
-      "Add a }"
-    );
+    addIssue(issues, "error", lines.length, "Missing closing brace", "You opened more table braces than you closed.", "Add a }");
   }
 
   if (braceCount < 0) {
-    addIssue(
-      issues,
-      "error",
-      lines.length,
-      "Extra closing brace",
-      "You closed more table braces than you opened.",
-      "Remove an extra }"
-    );
+    addIssue(issues, "error", lines.length, "Extra closing brace", "You closed more table braces than you opened.", "Remove an extra }");
   }
 
   blockStack.forEach(block => {
@@ -620,12 +598,14 @@ function updateEditor() {
   renderDiagnostics(checkLua(code));
 }
 
-codeInput.addEventListener("input", updateEditor);
-
-codeInput.addEventListener("scroll", () => {
+function syncScroll() {
   highlighting.scrollTop = codeInput.scrollTop;
   highlighting.scrollLeft = codeInput.scrollLeft;
-});
+}
+
+codeInput.addEventListener("input", updateEditor);
+
+codeInput.addEventListener("scroll", syncScroll);
 
 codeInput.addEventListener("keydown", event => {
   if (event.key === "Tab") {
@@ -644,4 +624,12 @@ codeInput.addEventListener("keydown", event => {
   }
 });
 
+window.addEventListener("DOMContentLoaded", () => {
+  codeInput.value = defaultCode;
+  updateEditor();
+});
+
+codeInput.value = defaultCode;
 updateEditor();
+
+console.log(`Lua Compiler v${APP_VERSION} loaded`);
